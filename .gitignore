@@ -1,4 +1,5 @@
 build/
+_site_preview/
 tmp/
 __pycache__/
 *.aux
@@ -7,4 +8,3 @@ __pycache__/
 *.log
 *.out
 *.synctex.gz
-

@@ -1,5 +1,5 @@
 [project]
-name = "family-learning-materials"
+name = "elementary-learning-studio"
 version = "0.1.0"
 description = "Reproducible, student-facing mathematics practice sheets"
 requires-python = ">=3.11"
@@ -7,4 +7,3 @@ requires-python = ">=3.11"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

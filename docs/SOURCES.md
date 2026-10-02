@@ -17,7 +17,11 @@ Math-Drills describes Five Minute Frenzy addition and multiplication charts as 1
 - minuends 29-38, subtrahends 10-19;
 - minuends 41-50, subtrahends 16-25.
 
-This project implements the format independently. It does not copy the source worksheets, branding, answer keys, or exact shuffled sequences. “Five Minute Frenzy” is used descriptively in the research notes; the generated pack uses family-owned titles.
+This project implements familiar arithmetic-grid mechanics independently. It does not copy source worksheets, branding, answer keys, exact shuffled sequences, illustrations, or learner-facing wording. “Five Minute Frenzy” appears only here as a descriptive research reference; the generated pack and public site use original titles and presentation and are not affiliated with the referenced sites.
+
+## Copyright boundary
+
+Mathematical facts, operations, and general teaching methods are used as ideas; the project's wording, problem selection, sequencing, code, visual system, and layouts are independently created. Do not add scans, transcriptions, proprietary problem sequences, or close visual imitations from books or commercial worksheet sites. A book may inform broad subject exploration, but any resulting activity must be expressed, illustrated, and sequenced independently and cited here when relevant.
 
 ## Curriculum references
 
@@ -36,4 +40,3 @@ Relevant design implications:
 ## District scope
 
 No public evidence was found for an SD43-wide program or mandated sequence named “Five Minute Frenzy.” Treat it as a generic worksheet format that a teacher may choose, not as an SD43 curriculum product.
-

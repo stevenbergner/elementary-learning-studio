@@ -1,6 +1,10 @@
-# Family Learning Materials
+# Elementary Learning Studio
 
-A small, reproducible project for creating attractive, print-at-home mathematics practice. The starter pack is inspired by the 10 x 10 "Five Minute Frenzy" worksheet format, but it is designed around accuracy, strategy, reflection, and steady progress. Timing is always optional.
+An open, reproducible studio for creating thoughtful elementary mathematics practice on paper and in the browser. The first printable pack uses the familiar 10 x 10 arithmetic-grid format, redesigned independently around accuracy, strategy, reflection, and steady progress. Timing is always optional.
+
+## Try it online
+
+[Open the browser-based learning studio](https://stevenbergner.github.io/elementary-learning-studio/) on a tablet or laptop. It supports touch and keyboard input, gives strategy hints, works offline after the first visit, and keeps its small progress count only on the learner's device.
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
@@ -71,6 +75,14 @@ make test
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
 | `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
+| `site/` | Dependency-free browser practice and project landing page |
+| `.github/workflows/pages.yml` | Publishes the site and reviewed PDFs to GitHub Pages |
+
+## Public-use and copyright policy
+
+Source code is available under the [MIT license](LICENSE). Original learning content and reviewed PDFs are shared under [CC BY 4.0](CONTENT_LICENSE.md). See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting material: copied worksheets, scans, proprietary problem sequences, and learner data are not accepted.
+
+External sources are cited for curriculum context and format research only. This project does not copy external worksheets, branding, answer keys, or shuffled sequences, and is not affiliated with the referenced publishers.
 
 ## Design choices
 
