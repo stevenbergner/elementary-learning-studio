@@ -1,0 +1,45 @@
+[project]
+title = "Family Math Lab"
+subtitle = "Practice with patterns, strategies, and confidence"
+
+[worksheets.addition_1_10]
+title = "Addition Grid: 1 to 10"
+operation = "addition"
+style = "grid"
+row_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+column_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+strategy_prompt = "Try doubles, near-doubles, or make a 10."
+
+[worksheets.subtraction_to_18]
+title = "Subtraction Grid: Facts to 18"
+operation = "subtraction"
+style = "grid"
+row_values = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+column_values = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+strategy_prompt = "Count up, bridge through 10, or use a related addition fact."
+
+[worksheets.multiplication_2_12]
+title = "Multiplication Grid: 2 to 12"
+operation = "multiplication"
+style = "grid"
+row_values = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12]
+column_values = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+strategy_prompt = "Look for 2s, 5s, and 10s, then build nearby facts."
+
+[worksheets.division_facts_to_100]
+title = "Division Facts: No Remainders"
+operation = "division"
+style = "equations"
+divisors = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+quotients = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+question_count = 60
+strategy_prompt = "Think: divisor times what number equals the dividend?"
+
+[packs.grade4_fluency]
+title = "Grade 4 Fluency Starter Pack"
+worksheets = [
+  "addition_1_10",
+  "subtraction_to_18",
+  "multiplication_2_12",
+  "division_facts_to_100",
+]
