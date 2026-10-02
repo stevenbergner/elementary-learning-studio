@@ -4,6 +4,12 @@ A small, reproducible project for creating attractive, print-at-home mathematics
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
+## Example printable pack
+
+[Open the four-page Grade 4 fluency starter pack](output/pdf/grade4_fluency-starter-pack.pdf). It includes addition, subtraction, multiplication, and whole-number division practice with strategy prompts and learner reflection.
+
+The repository keeps a small number of reviewed PDFs as examples. Routine builds stay in the ignored `build/` directory; replacing a committed example is an explicit `make publish-example` step. This keeps source changes separate from shareable snapshots without requiring a release process yet.
+
 ## Quick start
 
 Requirements:
@@ -19,6 +25,12 @@ make starter
 ```
 
 `make starter` creates a project-local XeLaTeX format when needed. It does not modify the system TeX configuration.
+
+After reviewing the generated `build/grade4_fluency.pdf`, deliberately update the committed example with:
+
+```bash
+make publish-example
+```
 
 Build a different deterministic version:
 
@@ -57,7 +69,8 @@ make test
 | `data/progress.csv` | Family-owned practice log; one row per session |
 | `docs/LEARNING_GUIDE.md` | How to use the materials without making speed the goal |
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
-| `output/pdf/` | Final printable PDFs |
+| `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
+| `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
 
 ## Design choices
 

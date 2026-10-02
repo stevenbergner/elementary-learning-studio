@@ -8,7 +8,7 @@ TEXMF_TREE := {$(TEXMFCONFIG_DIR),$(TEXMFVAR_DIR),/usr/share/texmf,/usr/share/te
 TEX_ENV := TEXMFCONFIG=$(TEXMFCONFIG_DIR) TEXMFVAR=$(TEXMFVAR_DIR) TEXMF='$(TEXMF_TREE)'
 XELATEX_FORMAT := $(TEXMFVAR_DIR)/web2c/xetex/xelatex.fmt
 
-.PHONY: starter bootstrap-tex test progress clean
+.PHONY: starter publish-example bootstrap-tex test progress clean
 
 bootstrap-tex: $(XELATEX_FORMAT)
 
@@ -18,9 +18,12 @@ $(XELATEX_FORMAT): config/fmtutil.cnf
 	$(TEX_ENV) fmtutil-user --byfmt xelatex
 
 starter: bootstrap-tex
-	mkdir -p build output/pdf
+	mkdir -p build
 	$(PYTHON) scripts/build_pack.py --pack $(PACK) --seed $(SEED) --timing optional --output build/$(PACK).tex
 	$(TEX_ENV) $(LATEXMK) -xelatex -interaction=nonstopmode -halt-on-error -outdir=build build/$(PACK).tex
+
+publish-example: starter
+	mkdir -p output/pdf
 	cp build/$(PACK).pdf output/pdf/$(PACK)-starter-pack.pdf
 
 test:
