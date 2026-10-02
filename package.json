@@ -1,0 +1,14 @@
+{
+  "name": "elementary-learning-studio-web-qa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-level quality checks for the static learning studio",
+  "type": "module",
+  "scripts": {
+    "build:site": "python3 scripts/build_site.py",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

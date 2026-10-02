@@ -1,6 +1,9 @@
 build/
 _site_preview/
 tmp/
+node_modules/
+playwright-report/
+test-results/
 __pycache__/
 *.aux
 *.fdb_latexmk

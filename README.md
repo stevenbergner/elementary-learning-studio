@@ -62,6 +62,21 @@ Run tests:
 make test
 ```
 
+Assemble the same static artifact that GitHub Pages deploys:
+
+```bash
+make site
+```
+
+Browser quality checks run in GitHub Actions at desktop, iPad, and school-laptop viewport sizes. They exercise keyboard answering, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run build:site
+npm run test:browser
+```
+
 ## Project map
 
 | Path | Purpose |
@@ -77,6 +92,7 @@ make test
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
 | `site/` | Dependency-free browser practice and project landing page |
 | `.github/workflows/pages.yml` | Publishes the site and reviewed PDFs to GitHub Pages |
+| `.github/workflows/quality.yml` | Runs generator, structure, desktop, iPad, and laptop checks |
 
 ## Public-use and copyright policy
 

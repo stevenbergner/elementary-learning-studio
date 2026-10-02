@@ -6,6 +6,7 @@ on:
     paths:
       - "site/**"
       - "output/pdf/**"
+      - "scripts/build_site.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -27,11 +28,7 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Assemble static site
-        run: |
-          mkdir -p _site/pdfs
-          cp -R site/. _site/
-          cp output/pdf/*.pdf _site/pdfs/
-          touch _site/.nojekyll
+        run: python3 scripts/build_site.py --output _site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

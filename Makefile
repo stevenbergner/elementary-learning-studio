@@ -8,7 +8,7 @@ TEXMF_TREE := {$(TEXMFCONFIG_DIR),$(TEXMFVAR_DIR),/usr/share/texmf,/usr/share/te
 TEX_ENV := TEXMFCONFIG=$(TEXMFCONFIG_DIR) TEXMFVAR=$(TEXMFVAR_DIR) TEXMF='$(TEXMF_TREE)'
 XELATEX_FORMAT := $(TEXMFVAR_DIR)/web2c/xetex/xelatex.fmt
 
-.PHONY: starter publish-example bootstrap-tex test progress clean
+.PHONY: starter publish-example bootstrap-tex test site progress clean
 
 bootstrap-tex: $(XELATEX_FORMAT)
 
@@ -28,6 +28,9 @@ publish-example: starter
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
+
+site:
+	$(PYTHON) scripts/build_site.py
 
 progress:
 	$(PYTHON) scripts/summarize_progress.py data/progress.csv --output output/progress-summary.md
