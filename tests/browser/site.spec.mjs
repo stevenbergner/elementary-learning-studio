@@ -112,7 +112,7 @@ test("keeps the page inside the viewport and touch controls comfortably sized", 
 test("remembers named learners and exposes meaningful local progress", async ({ page }) => {
   await completeSet(page, { learner: "Timmy", malformedFirst: true, timing: true });
   await page.getByRole("button", { name: "Confidence 4 out of 5" }).click();
-  await page.getByRole("button", { name: "View progress" }).click();
+  await page.getByRole("button", { name: "View progress", exact: true }).click();
 
   await expect(page.locator("#stats-grid")).toContainText("100%");
   await expect(page.locator("#stats-grid")).toContainText("0 · 0");
@@ -140,7 +140,7 @@ test("downloads an informal award and interoperable xAPI statements", async ({ p
   expect(awardText).toContain("Mia");
   expect(awardText).toContain("not a graded or verified credential");
 
-  await page.getByRole("button", { name: "View progress" }).click();
+  await page.getByRole("button", { name: "View progress", exact: true }).click();
   const csvPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download CSV" }).click();
   const csv = await csvPromise;
