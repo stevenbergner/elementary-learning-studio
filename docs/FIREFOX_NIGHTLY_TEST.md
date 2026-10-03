@@ -5,22 +5,23 @@ browser-managed language model after permission and performs recognition in a
 sandboxed inference process. Ordinary Firefox releases may not expose the API
 yet, so this test uses Nightly in a separate profile.
 
-## Install and open the studio on x86-64 Linux
+## Install and open the studio on Apple Silicon macOS
 
 From the repository root:
 
 ```bash
-./scripts/run_firefox_nightly.sh --desktop
+./scripts/run_firefox_nightly.sh
 ```
 
-The launcher downloads Mozilla's official Nightly archive over HTTPS into
-`~/.local/share/firefox-nightly`, creates an isolated profile under
-`~/.local/state/elementary-learning-studio`, and opens the public learning
-studio. It does not replace or alter the normal Firefox installation and does
-not require `sudo`.
+The launcher downloads Mozilla's official Nightly disk image over HTTPS and
+installs `Firefox Nightly.app` under `~/Applications`. It creates an isolated
+profile under `~/Library/Application Support/Elementary Learning Studio` and
+opens the public learning studio. It does not replace or alter the normal
+Firefox installation and does not require administrator access.
 
 Use `--update` to fetch the newest build or `--install-only` to prepare Nightly
-without opening it.
+without opening it. The installed app is available through Finder and
+Spotlight.
 
 ## Test checklist
 

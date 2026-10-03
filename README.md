@@ -82,14 +82,14 @@ npm run test:browser
 ```
 
 To try Mozilla's experimental, strictly on-device speech recognition in an
-isolated Firefox Nightly profile on x86-64 Linux:
+isolated Firefox Nightly profile on an Apple Silicon Mac:
 
 ```bash
-./scripts/run_firefox_nightly.sh --desktop
+./scripts/run_firefox_nightly.sh
 ```
 
-This rootless launcher keeps Nightly separate from normal Firefox and opens the
-public studio. See [the Firefox Nightly voice test checklist](docs/FIREFOX_NIGHTLY_TEST.md)
+This user-local launcher keeps Nightly separate from normal Firefox and opens
+the public studio. See [the Firefox Nightly voice test checklist](docs/FIREFOX_NIGHTLY_TEST.md)
 before reporting results upstream.
 
 ## Project map
