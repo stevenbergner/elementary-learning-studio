@@ -1,4 +1,4 @@
-const CACHE = "elementary-learning-studio-v3";
+const CACHE = "elementary-learning-studio-v4";
 const CORE = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (event) => {

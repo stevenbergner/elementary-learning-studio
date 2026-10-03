@@ -8,7 +8,7 @@ An open, reproducible studio for creating thoughtful elementary mathematics prac
 
 The progress panel shows first-try accuracy, retries, hints, facts worth revisiting, confidence, and recent sessions. Timing is opt-in per set and hidden in the standard view. Families can download ordinary CSV or xAPI-compatible JSON without sending learner data to a server. A downloadable practice award is deliberately labelled as an informal celebration, not a graded or verified credential.
 
-Browsers that expose speech recognition also receive a small, opt-in voice experiment for English, French, and German numbers and a closed set of safe commands. No speech model is bundled. See [Input methods and privacy](docs/INPUT_METHODS.md) for the design boundary and the decision to defer handwriting recognition.
+An unobtrusive answer-mode panel offers browser-provided speech recognition for English, French, and German numbers and a closed set of safe commands. It prefers the browser's private on-device language pack, shows language-pack setup progress, labels browser-service fallback honestly, and stays visibly unavailable rather than failing silently in unsupported browsers. No third-party speech model is bundled. See [Input methods and privacy](docs/INPUT_METHODS.md) for details and the decision to defer handwriting recognition.
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
@@ -72,7 +72,7 @@ Assemble the same static artifact that GitHub Pages deploys:
 make site
 ```
 
-Browser quality checks run in GitHub Actions at desktop, iPad, and school-laptop viewport sizes. They exercise keyboard answering, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
+Browser quality checks run in GitHub Actions in Chromium and Firefox, including upright-phone, iPad, desktop, and school-laptop viewport sizes. They exercise keyboard answering, voice capability fallbacks, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
 
 ```bash
 npm ci

@@ -47,7 +47,11 @@ let setStartedAt = null;
 let timerStartedAt = null;
 let lastSessionId = null;
 let recognition = null;
+let RecognitionConstructor = null;
 let voiceActive = false;
+let voiceStarting = false;
+let voiceShouldRun = false;
+let voiceStartTimer = null;
 
 const elements = Object.fromEntries(Object.entries({
   answer: "#answer", form: "#answer-form", check: "#check-answer", hintButton: "#show-hint", hint: "#hint-text",
@@ -58,6 +62,8 @@ const elements = Object.fromEntries(Object.entries({
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
   voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
+  voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
+  voiceDownloadLabel: "#voice-download-label",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -128,7 +134,7 @@ function makeSet(kind) {
 function currentQuestion() { return questions[index]; }
 
 function startSet(kind = operation) {
-  stopVoice("Voice mode is off.");
+  if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input is off.");
   operation = kind;
   questions = makeSet(operation);
   index = 0;
@@ -202,7 +208,7 @@ function checkAnswer() {
 function nextQuestion() { index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet(); }
 
 function finishSet() {
-  stopVoice("Voice mode stopped because the set is complete.");
+  if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input stopped because the set is complete.");
   const profile = ensureProfile();
   const items = questions.map((question) => ({
     a: question.a, b: question.b, answer: question.answer,
@@ -413,29 +419,226 @@ function handleVoice(transcript) {
   if (number !== null && !elements.answer.disabled) { elements.answer.value = String(number); elements.answer.focus(); }
   else elements.voiceStatus.textContent = "I did not match that to a number or an available command.";
 }
+function supportsLocalSpeech() {
+  return recognition && "processLocally" in recognition
+    && typeof RecognitionConstructor?.available === "function"
+    && typeof RecognitionConstructor?.install === "function";
+}
+
+function showVoiceDownload(show, language = elements.voiceLanguage.value) {
+  elements.voiceDownload.hidden = !show;
+  if (show) {
+    const label = elements.voiceLanguage.options[elements.voiceLanguage.selectedIndex].text;
+    elements.voiceDownloadLabel.textContent = `The browser is downloading its ${label} language pack. It does not report a percentage.`;
+    elements.voiceDownload.dataset.language = language;
+  }
+}
+
+async function refreshVoiceAvailability() {
+  if (!recognition) return;
+  elements.voiceButton.disabled = false;
+  elements.voiceLanguage.disabled = false;
+  elements.voiceButton.textContent = "Start voice input";
+  elements.voicePrivacy.textContent = "This studio uses only the browser’s speech interface. It does not include a third-party speech library or store audio.";
+
+  if (!supportsLocalSpeech()) {
+    elements.voiceAvailability.textContent = "Browser speech service";
+    elements.voiceStatus.textContent = "Ready when you choose voice input.";
+    return;
+  }
+
+  try {
+    const status = await RecognitionConstructor.available({
+      langs: [elements.voiceLanguage.value],
+      processLocally: true,
+      quality: "command",
+    });
+    if (status === "available") {
+      elements.voiceAvailability.textContent = "Private on-device speech ready";
+      elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
+      elements.voiceStatus.textContent = "Ready when you choose voice input.";
+    } else if (status === "downloadable" || status === "downloading") {
+      elements.voiceAvailability.textContent = "Private language pack available";
+      elements.voiceButton.textContent = "Set up voice input";
+      elements.voiceStatus.textContent = "Starting voice will ask the browser to download its local language pack.";
+    } else {
+      elements.voiceAvailability.textContent = "Browser speech service";
+      elements.voiceStatus.textContent = "A local language pack is unavailable; the browser may use its own online speech service.";
+    }
+  } catch (_) {
+    elements.voiceAvailability.textContent = "Browser speech service";
+    elements.voiceStatus.textContent = "Ready when you choose voice input.";
+  }
+}
+
+async function prepareVoice() {
+  recognition.lang = elements.voiceLanguage.value;
+  if (!supportsLocalSpeech()) return;
+
+  let status;
+  try {
+    status = await RecognitionConstructor.available({
+      langs: [recognition.lang],
+      processLocally: true,
+      quality: "command",
+    });
+  } catch (_) {
+    recognition.processLocally = false;
+    return;
+  }
+
+  if (status === "available") {
+    recognition.processLocally = true;
+    elements.voiceAvailability.textContent = "Private on-device speech ready";
+    elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
+    return;
+  }
+
+  if (status === "downloadable" || status === "downloading") {
+    showVoiceDownload(true);
+    elements.voiceButton.textContent = "Cancel setup";
+    elements.voiceStatus.textContent = "Waiting for the browser’s local language pack…";
+    const installed = await RecognitionConstructor.install({
+      langs: [recognition.lang],
+      processLocally: true,
+      quality: "command",
+    });
+    showVoiceDownload(false);
+    if (!voiceShouldRun) return;
+    if (installed) {
+      recognition.processLocally = true;
+      elements.voiceAvailability.textContent = "Private on-device speech ready";
+      elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
+      elements.voiceStatus.textContent = "Local language pack ready. Starting the microphone…";
+      return;
+    }
+    recognition.processLocally = false;
+    elements.voiceAvailability.textContent = "Browser speech service";
+    elements.voiceStatus.textContent = "The local pack was unavailable. Trying the browser’s speech service…";
+    return;
+  }
+
+  recognition.processLocally = false;
+  elements.voiceAvailability.textContent = "Browser speech service";
+  elements.voiceStatus.textContent = "The browser may use its own online speech service.";
+}
+
+function beginRecognition() {
+  if (!recognition || !voiceShouldRun) return;
+  voiceStarting = true;
+  elements.voiceButton.disabled = false;
+  elements.voiceButton.textContent = "Cancel voice start";
+  elements.voiceButton.setAttribute("aria-busy", "true");
+  elements.voiceStatus.textContent = "Waiting for the browser to start listening…";
+  clearTimeout(voiceStartTimer);
+  voiceStartTimer = setTimeout(() => {
+    if (!voiceActive && voiceShouldRun) {
+      stopVoice("Voice input did not start. This browser may show the API without providing a working speech service.");
+    }
+  }, 7000);
+  try {
+    recognition.start();
+  } catch (_) {
+    stopVoice("Voice input could not start in this browser.");
+  }
+}
+
+async function startVoice() {
+  if (!recognition || voiceActive || voiceStarting) return;
+  voiceShouldRun = true;
+  voiceStarting = true;
+  elements.voiceButton.textContent = "Cancel voice start";
+  elements.voiceButton.setAttribute("aria-busy", "true");
+  elements.voiceStatus.textContent = "Preparing the browser’s speech interface…";
+  try {
+    await prepareVoice();
+    if (!voiceShouldRun) return;
+    beginRecognition();
+  } catch (_) {
+    stopVoice("The browser could not prepare voice input. Keyboard and touch still work.");
+  }
+}
+
+function voiceErrorMessage(error) {
+  const messages = {
+    "not-allowed": "Microphone permission was not granted. Voice input is off.",
+    "service-not-allowed": "The browser’s speech service is unavailable or blocked.",
+    "audio-capture": "The browser could not access a microphone.",
+    "language-not-supported": "This browser does not support the selected speech language.",
+    network: "The browser’s speech service could not connect.",
+    "no-speech": "I did not hear speech. Voice input is still available; try again.",
+  };
+  return messages[error] || `Voice input stopped (${error}).`;
+}
+
 function setupVoice() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return;
-  recognition = new Recognition();
+  RecognitionConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!RecognitionConstructor) {
+    elements.voiceAvailability.textContent = "Unavailable in this browser";
+    elements.voiceStatus.textContent = "This browser does not provide speech recognition to web pages. Keyboard and touch remain available.";
+    elements.voiceButton.textContent = "Voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
+
+  try {
+    recognition = new RecognitionConstructor();
+  } catch (_) {
+    recognition = null;
+    elements.voiceAvailability.textContent = "Unavailable in this browser";
+    elements.voiceStatus.textContent = "This browser exposes a speech interface but could not initialize it. Keyboard and touch remain available.";
+    elements.voiceButton.textContent = "Voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
   Object.assign(recognition, { continuous: true, interimResults: false, maxAlternatives: 3 });
-  elements.voiceButton.hidden = false;
-  elements.voicePanel.hidden = false;
-  recognition.addEventListener("result", (event) => { const result = event.results[event.results.length - 1]; if (result.isFinal) handleVoice(result[0].transcript); });
-  recognition.addEventListener("error", (event) => stopVoice(`Voice mode stopped: ${event.error}.`));
-  recognition.addEventListener("end", () => { if (voiceActive) { try { recognition.start(); } catch (_) { stopVoice("Voice mode stopped. Start it again when ready."); } } });
+  recognition.addEventListener("start", () => {
+    clearTimeout(voiceStartTimer);
+    voiceStarting = false;
+    voiceActive = true;
+    elements.voiceButton.textContent = "Stop voice input";
+    elements.voiceButton.setAttribute("aria-pressed", "true");
+    elements.voiceButton.setAttribute("aria-busy", "false");
+    elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
+  });
+  recognition.addEventListener("result", (event) => {
+    const result = event.results[event.results.length - 1];
+    if (result.isFinal) handleVoice(result[0].transcript);
+  });
+  recognition.addEventListener("error", (event) => {
+    if (event.error === "aborted" && !voiceShouldRun) return;
+    if (event.error === "no-speech" && voiceShouldRun) {
+      elements.voiceStatus.textContent = voiceErrorMessage(event.error);
+      return;
+    }
+    stopVoice(voiceErrorMessage(event.error));
+  });
+  recognition.addEventListener("end", () => {
+    voiceActive = false;
+    voiceStarting = false;
+    if (voiceShouldRun) beginRecognition();
+  });
+  refreshVoiceAvailability();
 }
-function startVoice() {
-  if (!recognition || voiceActive) return;
-  recognition.lang = elements.voiceLanguage.value; voiceActive = true;
-  elements.voiceButton.textContent = "Stop voice mode"; elements.voiceButton.setAttribute("aria-pressed", "true");
-  elements.voiceStatus.textContent = "Listening only for a number or the shown commands…";
-  try { recognition.start(); } catch (_) { stopVoice("Voice mode could not start in this browser."); }
-}
-function stopVoice(message = "Voice mode is off.") {
+
+function stopVoice(message = "Voice input is off.") {
+  clearTimeout(voiceStartTimer);
+  voiceShouldRun = false;
+  voiceStarting = false;
   voiceActive = false;
-  if (elements.voiceButton) { elements.voiceButton.textContent = "Start voice mode"; elements.voiceButton.setAttribute("aria-pressed", "false"); }
+  showVoiceDownload(false);
+  if (elements.voiceButton) {
+    elements.voiceButton.textContent = recognition ? "Start voice input" : "Voice unavailable";
+    elements.voiceButton.setAttribute("aria-pressed", "false");
+    elements.voiceButton.setAttribute("aria-busy", "false");
+    elements.voiceButton.disabled = !recognition;
+  }
   if (elements.voiceStatus) elements.voiceStatus.textContent = message;
-  if (recognition) { try { recognition.stop(); } catch (_) { /* Already stopped. */ } }
+  if (recognition) {
+    try { recognition.abort(); } catch (_) { /* It was already stopped. */ }
+  }
 }
 
 elements.form.addEventListener("submit", (event) => { event.preventDefault(); checkAnswer(); });
@@ -474,9 +677,12 @@ document.querySelector("#clear-all").addEventListener("click", () => {
   try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(OLD_STORAGE_KEY); } catch (_) { /* Storage is optional. */ }
   renderLearnerChoices(); renderHistory(); renderProgress();
 });
-elements.voiceButton.addEventListener("click", () => voiceActive ? stopVoice() : startVoice());
-elements.voiceLanguage.addEventListener("change", () => { if (voiceActive) stopVoice("Language changed. Start voice mode again when ready."); });
-document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice mode stopped when the page was hidden."); });
+elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
+elements.voiceLanguage.addEventListener("change", () => {
+  if (voiceActive || voiceStarting) stopVoice("Language changed. Start voice input again when ready.");
+  refreshVoiceAvailability();
+});
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice input stopped when the page was hidden."); });
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);

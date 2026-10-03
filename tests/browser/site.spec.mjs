@@ -109,6 +109,24 @@ test("keeps the page inside the viewport and touch controls comfortably sized", 
 });
 
 
+test("keeps the portrait-phone practice flow in a clear vertical order", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone-portrait-chromium", "Portrait-phone layout check");
+  await page.locator("#practice").scrollIntoViewIfNeeded();
+
+  const boxes = await page.locator(".practice-controls, .practice-card, .input-mode-panel").evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+  }));
+  expect(boxes[0].bottom).toBeLessThanOrEqual(boxes[1].top + 1);
+  expect(boxes[1].bottom).toBeLessThanOrEqual(boxes[2].top + 1);
+  const viewport = page.viewportSize();
+  for (const box of boxes) {
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(viewport.width);
+  }
+});
+
+
 test("remembers named learners and exposes meaningful local progress", async ({ page }) => {
   await completeSet(page, { learner: "Timmy", malformedFirst: true, timing: true });
   await page.getByRole("button", { name: "Confidence 4 out of 5" }).click();
@@ -160,15 +178,48 @@ test("downloads an informal award and interoperable xAPI statements", async ({ p
 });
 
 
-test("reveals voice controls only when browser speech recognition exists", async ({ page }) => {
+test("keeps unsupported voice input visible but safely unavailable", async ({ page }) => {
   await page.addInitScript(() => {
-    class FakeRecognition extends EventTarget {
-      start() {}
-      stop() {}
-    }
-    window.SpeechRecognition = FakeRecognition;
+    Object.defineProperty(window, "SpeechRecognition", { value: undefined, configurable: true });
+    Object.defineProperty(window, "webkitSpeechRecognition", { value: undefined, configurable: true });
   });
   await page.reload();
-  await expect(page.getByRole("button", { name: "Start voice mode" })).toBeVisible();
+
+  await expect(page.locator("#voice-panel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Voice unavailable" })).toBeDisabled();
+  await expect(page.locator("#voice-availability")).toHaveText("Unavailable in this browser");
+  await expect(page.locator(".answer-actions #voice-toggle")).toHaveCount(0);
+});
+
+
+test("shows local language-pack progress and starts only after the browser confirms listening", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static installed = false;
+      static async available() { return this.installed ? "available" : "downloadable"; }
+      static async install() {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        this.installed = true;
+        return true;
+      }
+      constructor() {
+        super();
+        this.processLocally = false;
+      }
+      start() { this.dispatchEvent(new Event("start")); }
+      abort() { this.dispatchEvent(new Event("end")); }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+
+  await expect(page.getByRole("button", { name: "Set up voice input" })).toBeVisible();
   await expect(page.locator("#voice-language option")).toHaveText(["English", "Français", "Deutsch"]);
+  await page.getByRole("button", { name: "Set up voice input" }).click();
+  await expect(page.locator("#voice-download")).toBeVisible();
+  await expect(page.locator("#voice-download-label")).toContainText("does not report a percentage");
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible({ timeout: 3_000 });
+  await expect(page.locator("#voice-availability")).toHaveText("Private on-device speech ready");
+  await expect(page.locator("#voice-privacy")).toContainText("processed on this device");
 });

@@ -117,23 +117,8 @@
                 <div class="answer-actions">
                   <button class="button button-primary" id="check-answer" type="submit">Check my answer</button>
                   <button class="button button-quiet" id="show-hint" type="button">Give me a hint</button>
-                  <button class="button button-quiet voice-button" id="voice-toggle" type="button" hidden>Start voice mode</button>
                 </div>
                 <p id="hint-text" class="hint" aria-live="polite"></p>
-                <div class="voice-panel" id="voice-panel" hidden>
-                  <label for="voice-language">Voice language</label>
-                  <select id="voice-language">
-                    <option value="en-CA">English</option>
-                    <option value="fr-CA">Français</option>
-                    <option value="de-DE">Deutsch</option>
-                  </select>
-                  <span id="voice-status" aria-live="polite">Voice mode is off.</span>
-                  <details>
-                    <summary>What can I say?</summary>
-                    <p>Say a number, then “check” or “enter.” Say “next” after a correct answer. Voice works only inside this activity and stops when you turn it off.</p>
-                    <p>No audio is stored by this site. Your browser may use an online speech service; the studio does not claim that recognition is always local.</p>
-                  </details>
-                </div>
               </form>
             </div>
 
@@ -160,6 +145,42 @@
               <p class="award-note">The award is a personal celebration, not a graded or verified credential.</p>
             </div>
           </div>
+
+          <aside class="input-mode-panel" aria-labelledby="input-mode-title">
+            <p class="control-label" id="input-mode-title">Answer mode</p>
+            <div class="input-mode-default">
+              <span class="keyboard-glyph" aria-hidden="true"></span>
+              <span><strong>Keyboard or touch</strong><small>Always ready</small></span>
+            </div>
+
+            <div class="voice-panel" id="voice-panel">
+              <div class="voice-heading">
+                <span class="microphone-glyph" aria-hidden="true"></span>
+                <div>
+                  <h3>Voice input</h3>
+                  <p id="voice-availability">Checking this browser…</p>
+                </div>
+              </div>
+              <button class="button button-secondary voice-button" id="voice-toggle" type="button" aria-pressed="false" disabled>Start voice input</button>
+              <label for="voice-language">Recognition language</label>
+              <select id="voice-language" disabled>
+                <option value="en-US">English</option>
+                <option value="fr-FR">Français</option>
+                <option value="de-DE">Deutsch</option>
+              </select>
+              <div class="voice-download" id="voice-download" hidden>
+                <progress aria-label="Browser language pack download"></progress>
+                <span id="voice-download-label">The browser is downloading its local language pack. It does not report a percentage.</span>
+              </div>
+              <p class="voice-status" id="voice-status" aria-live="polite">Checking browser support…</p>
+              <p class="voice-privacy" id="voice-privacy">This studio uses only the browser’s speech interface. It does not include a third-party speech library or store audio.</p>
+              <details>
+                <summary>What can I say?</summary>
+                <p>Say a number, then “check” or “enter.” Say “next” after a correct answer. Say “stop” to turn voice input off.</p>
+                <p>When the browser offers an on-device language pack, the studio prefers it. Otherwise recognition is handled by the browser’s own speech service.</p>
+              </details>
+            </div>
+          </aside>
         </div>
 
         <section class="progress-panel" id="progress-panel" aria-labelledby="progress-title" hidden>
