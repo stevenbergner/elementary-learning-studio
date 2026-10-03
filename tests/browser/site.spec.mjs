@@ -214,9 +214,9 @@ test("shows local language-pack progress and starts only after the browser confi
   });
   await page.reload();
 
-  await expect(page.getByRole("button", { name: "Set up voice input" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start voice input" })).toBeVisible();
   await expect(page.locator("#voice-language option")).toHaveText(["English", "Français", "Deutsch"]);
-  await page.getByRole("button", { name: "Set up voice input" }).click();
+  await page.getByRole("button", { name: "Start voice input" }).click();
   await expect(page.locator("#voice-download")).toBeVisible();
   await expect(page.locator("#voice-download-label")).toContainText("does not report a percentage");
   await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible({ timeout: 3_000 });

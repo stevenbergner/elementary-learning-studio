@@ -434,43 +434,6 @@ function showVoiceDownload(show, language = elements.voiceLanguage.value) {
   }
 }
 
-async function refreshVoiceAvailability() {
-  if (!recognition) return;
-  elements.voiceButton.disabled = false;
-  elements.voiceLanguage.disabled = false;
-  elements.voiceButton.textContent = "Start voice input";
-  elements.voicePrivacy.textContent = "This studio uses only the browser’s speech interface. It does not include a third-party speech library or store audio.";
-
-  if (!supportsLocalSpeech()) {
-    elements.voiceAvailability.textContent = "Browser speech service";
-    elements.voiceStatus.textContent = "Ready when you choose voice input.";
-    return;
-  }
-
-  try {
-    const status = await RecognitionConstructor.available({
-      langs: [elements.voiceLanguage.value],
-      processLocally: true,
-      quality: "command",
-    });
-    if (status === "available") {
-      elements.voiceAvailability.textContent = "Private on-device speech ready";
-      elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
-      elements.voiceStatus.textContent = "Ready when you choose voice input.";
-    } else if (status === "downloadable" || status === "downloading") {
-      elements.voiceAvailability.textContent = "Private language pack available";
-      elements.voiceButton.textContent = "Set up voice input";
-      elements.voiceStatus.textContent = "Starting voice will ask the browser to download its local language pack.";
-    } else {
-      elements.voiceAvailability.textContent = "Browser speech service";
-      elements.voiceStatus.textContent = "A local language pack is unavailable; the browser may use its own online speech service.";
-    }
-  } catch (_) {
-    elements.voiceAvailability.textContent = "Browser speech service";
-    elements.voiceStatus.textContent = "Ready when you choose voice input.";
-  }
-}
-
 async function prepareVoice() {
   recognition.lang = elements.voiceLanguage.value;
   if (!supportsLocalSpeech()) return;
@@ -620,7 +583,10 @@ function setupVoice() {
     voiceStarting = false;
     if (voiceShouldRun) beginRecognition();
   });
-  refreshVoiceAvailability();
+  elements.voiceButton.disabled = false;
+  elements.voiceLanguage.disabled = false;
+  elements.voiceAvailability.textContent = supportsLocalSpeech() ? "Browser speech · local option checked on start" : "Browser speech service";
+  elements.voiceStatus.textContent = "Ready when you choose voice input.";
 }
 
 function stopVoice(message = "Voice input is off.") {
@@ -680,7 +646,7 @@ document.querySelector("#clear-all").addEventListener("click", () => {
 elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
 elements.voiceLanguage.addEventListener("change", () => {
   if (voiceActive || voiceStarting) stopVoice("Language changed. Start voice input again when ready.");
-  refreshVoiceAvailability();
+  if (recognition) elements.voiceStatus.textContent = "Language changed. Ready when you choose voice input.";
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice input stopped when the page was hidden."); });
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
