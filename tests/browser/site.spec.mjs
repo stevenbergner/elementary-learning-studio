@@ -1,4 +1,29 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+
+
+async function completeSet(page, { learner = "Timmy", operation = "addition", malformedFirst = false, timing = false } = {}) {
+  await page.locator("#learner-name").fill(learner);
+  if (timing) await page.locator("#timing-enabled").check();
+  await page.locator(`[data-operation="${operation}"]`).click();
+
+  for (let question = 0; question < 10; question += 1) {
+    const a = Number(await page.locator("#operand-a").innerText());
+    const b = Number(await page.locator("#operand-b").innerText());
+    const symbol = await page.locator("#operator").innerText();
+    const solution = symbol === "+" ? a + b : symbol === "−" ? a - b : symbol === "×" ? a * b : a / b;
+    const answer = page.locator("#answer");
+    if (question === 0 && malformedFirst) {
+      await answer.fill("hello");
+      await answer.press("Enter");
+      await expect(page.locator("#feedback")).toContainText("whole number");
+    }
+    await answer.fill(String(solution));
+    await answer.press("Enter");
+    await page.locator("#check-answer").press("Enter");
+  }
+  await expect(page.locator("#complete-view")).toBeVisible();
+}
 
 
 test.beforeEach(async ({ page }) => {
@@ -81,4 +106,69 @@ test("keeps the page inside the viewport and touch controls comfortably sized", 
   });
   expect(answerSize.width).toBeGreaterThanOrEqual(44);
   expect(answerSize.height).toBeGreaterThanOrEqual(44);
+});
+
+
+test("remembers named learners and exposes meaningful local progress", async ({ page }) => {
+  await completeSet(page, { learner: "Timmy", malformedFirst: true, timing: true });
+  await page.getByRole("button", { name: "Confidence 4 out of 5" }).click();
+  await page.getByRole("button", { name: "View progress" }).click();
+
+  await expect(page.locator("#stats-grid")).toContainText("100%");
+  await expect(page.locator("#stats-grid")).toContainText("0 · 0");
+  await expect(page.locator("#session-list")).toContainText("Timmy");
+  await expect(page.locator("#session-list")).toContainText("4/5");
+  await expect(page.locator("#timing-view-label")).toBeVisible();
+  await expect(page.locator(".timing-column").first()).toBeHidden();
+
+  await page.reload();
+  await expect(page.locator("#learner-name")).toHaveValue("Timmy");
+  await page.locator("#learner-name").fill("Mia");
+  await page.locator("#learner-name").press("Tab");
+  await expect(page.locator("#known-learners option")).toHaveCount(2);
+});
+
+
+test("downloads an informal award and interoperable xAPI statements", async ({ page }) => {
+  await completeSet(page, { learner: "Mia", operation: "multiplication" });
+
+  const awardPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download practice award" }).click();
+  const award = await awardPromise;
+  expect(award.suggestedFilename()).toBe("mia-practice-award.svg");
+  const awardText = await readFile(await award.path(), "utf8");
+  expect(awardText).toContain("Mia");
+  expect(awardText).toContain("not a graded or verified credential");
+
+  await page.getByRole("button", { name: "View progress" }).click();
+  const csvPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download CSV" }).click();
+  const csv = await csvPromise;
+  const csvText = await readFile(await csv.path(), "utf8");
+  expect(csvText).toContain("learner,completed_at,operation");
+  expect(csvText).toContain("Mia");
+
+  const xapiPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download xAPI JSON" }).click();
+  const xapi = await xapiPromise;
+  const statements = JSON.parse(await readFile(await xapi.path(), "utf8"));
+  expect(statements).toHaveLength(1);
+  expect(statements[0].actor.name).toBe("Mia");
+  expect(statements[0].verb.id).toBe("http://adlnet.gov/expapi/verbs/completed");
+  expect(statements[0].object.id).toContain("activities/multiplication");
+  expect(statements[0].result).toMatchObject({ completion: true, success: true });
+});
+
+
+test("reveals voice controls only when browser speech recognition exists", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      start() {}
+      stop() {}
+    }
+    window.SpeechRecognition = FakeRecognition;
+  });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Start voice mode" })).toBeVisible();
+  await expect(page.locator("#voice-language option")).toHaveText(["English", "Français", "Deutsch"]);
 });

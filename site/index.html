@@ -65,6 +65,11 @@
 
         <div class="practice-shell">
           <aside class="practice-controls" aria-label="Choose a practice set">
+            <label class="learner-label" for="learner-name">Who is practising?</label>
+            <input class="learner-input" id="learner-name" list="known-learners" maxlength="40" autocomplete="name" placeholder="Type a first name">
+            <datalist id="known-learners"></datalist>
+            <p class="learner-help">This name and its progress stay only in this browser. Type another name to switch learners.</p>
+
             <p class="control-label">Choose a kind of thinking</p>
             <div class="operation-picker" role="group" aria-label="Operation">
               <button class="operation is-selected" type="button" data-operation="addition" aria-pressed="true">
@@ -80,10 +85,14 @@
                 <span aria-hidden="true">÷</span> Division
               </button>
             </div>
+            <label class="timing-option">
+              <input id="timing-enabled" type="checkbox">
+              <span><strong>Record time</strong><small>Optional for this set</small></span>
+            </label>
             <div class="device-history" aria-live="polite">
-              <span>On this device</span>
-              <strong id="history-summary">A fresh start</strong>
-              <button id="reset-history" class="text-button" type="button">Reset</button>
+              <span>Saved on this device</span>
+              <strong id="history-summary">No completed sets yet</strong>
+              <button id="view-progress" class="text-button" type="button">View progress and downloads</button>
             </div>
           </aside>
 
@@ -108,8 +117,23 @@
                 <div class="answer-actions">
                   <button class="button button-primary" id="check-answer" type="submit">Check my answer</button>
                   <button class="button button-quiet" id="show-hint" type="button">Give me a hint</button>
+                  <button class="button button-quiet voice-button" id="voice-toggle" type="button" hidden>Start voice mode</button>
                 </div>
                 <p id="hint-text" class="hint" aria-live="polite"></p>
+                <div class="voice-panel" id="voice-panel" hidden>
+                  <label for="voice-language">Voice language</label>
+                  <select id="voice-language">
+                    <option value="en-CA">English</option>
+                    <option value="fr-CA">Français</option>
+                    <option value="de-DE">Deutsch</option>
+                  </select>
+                  <span id="voice-status" aria-live="polite">Voice mode is off.</span>
+                  <details>
+                    <summary>What can I say?</summary>
+                    <p>Say a number, then “check” or “enter.” Say “next” after a correct answer. Voice works only inside this activity and stops when you turn it off.</p>
+                    <p>No audio is stored by this site. Your browser may use an online speech service; the studio does not claim that recognition is always local.</p>
+                  </details>
+                </div>
               </form>
             </div>
 
@@ -128,10 +152,74 @@
                   <button type="button" data-confidence="5" aria-label="Confidence 5 out of 5">5</button>
                 </div>
               </fieldset>
-              <button class="button button-primary" id="new-set" type="button">Try another set</button>
+              <div class="complete-actions">
+                <button class="button button-primary" id="new-set" type="button">Try another set</button>
+                <button class="button button-secondary" id="download-award" type="button">Download practice award</button>
+                <button class="button button-quiet" id="open-progress" type="button">View progress</button>
+              </div>
+              <p class="award-note">The award is a personal celebration, not a graded or verified credential.</p>
             </div>
           </div>
         </div>
+
+        <section class="progress-panel" id="progress-panel" aria-labelledby="progress-title" hidden>
+          <div class="progress-panel-heading">
+            <div>
+              <p class="eyebrow">Stored only on this device</p>
+              <h3 id="progress-title">Learning progress</h3>
+            </div>
+            <button class="button button-quiet" id="close-progress" type="button">Close</button>
+          </div>
+
+          <div class="progress-toolbar">
+            <label for="progress-learner">Show learner
+              <select id="progress-learner"></select>
+            </label>
+            <label class="timing-view" id="timing-view-label" hidden>
+              <input id="show-timing" type="checkbox">
+              Show optional timing
+            </label>
+          </div>
+
+          <div class="stats-grid" id="stats-grid" aria-live="polite"></div>
+
+          <div class="progress-detail-grid">
+            <article>
+              <h4>By operation</h4>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Operation</th><th>Sets</th><th>First try</th><th>Retried</th><th class="timing-column" hidden>Time: first → latest</th></tr></thead>
+                  <tbody id="operation-stats"></tbody>
+                </table>
+              </div>
+            </article>
+            <article>
+              <h4>Facts to revisit</h4>
+              <p class="panel-note">A fact appears here after a wrong numeric answer or a requested hint. Empty or mistyped entries are not counted.</p>
+              <div class="fact-list" id="fact-list"></div>
+            </article>
+          </div>
+
+          <article class="session-history">
+            <h4>Recent sessions</h4>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Learner</th><th>Set</th><th>First try</th><th>Retries</th><th>Confidence</th><th class="timing-column" hidden>Time</th></tr></thead>
+                <tbody id="session-list"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <p class="legacy-note" id="legacy-note" hidden></p>
+
+          <div class="progress-actions">
+            <button class="button button-primary" id="export-csv" type="button">Download CSV</button>
+            <button class="button button-secondary" id="export-xapi" type="button">Download xAPI JSON</button>
+            <button class="button button-quiet" id="clear-learner" type="button">Clear this learner</button>
+            <button class="text-button danger-link" id="clear-all" type="button">Clear all device data</button>
+          </div>
+          <p class="privacy-note">Downloads are created locally. Nothing is uploaded or sent to a school, teacher, or server.</p>
+        </section>
       </section>
 
       <section class="print-section" id="print" aria-labelledby="print-title">

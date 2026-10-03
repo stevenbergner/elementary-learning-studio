@@ -40,3 +40,23 @@ Relevant design implications:
 ## District scope
 
 No public evidence was found for an SD43-wide program or mandated sequence named “Five Minute Frenzy.” Treat it as a generic worksheet format that a teacher may choose, not as an SD43 curriculum product.
+
+## Learning records and awards
+
+- xAPI 2.0 specification: <https://github.com/adlnet/xAPI-Spec/tree/master/xAPI-Data>
+- 1EdTech Open Badges 3.0: <https://www.imsglobal.org/spec/ob/v3p0/>
+
+The browser exports session statements shaped around xAPI's actor–verb–object model, including completion, score, optional ISO 8601 duration, and project-specific extensions. The download is a portable JSON file; the site does not send statements to a Learning Record Store or claim conformance certification.
+
+The downloadable SVG is called a “practice award,” not an Open Badge. Open Badges are verifiable credentials with an issuer and cryptographic proof. A purely client-side home-practice celebration does not meet that definition.
+
+## Input technology
+
+- W3C Web Speech API draft: <https://webaudio.github.io/web-speech-api/>
+- MDN `SpeechRecognition`: <https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition>
+- Mistral Voxtral Mini 4B Realtime: <https://docs.mistral.ai/models/voxtral-mini-4b-realtime-2604>
+- W3C Pointer Events: <https://www.w3.org/TR/pointerevents3/>
+- Wacom Ink SDK for Web: <https://developer-docs.wacom.com/docs/sdk-for-ink/web/overview>
+- MyScript iinkJS integration: <https://developer.myscript.com/docs/interactive-ink/4.0/web/overview/integration/>
+
+The implemented voice experiment uses browser capability detection and a closed vocabulary. It does not bundle Voxtral or promise on-device recognition. Pen events are feasible, but handwriting recognition remains deferred because the reviewed production integration requires a recognition service and credentials. See `docs/INPUT_METHODS.md` for the usability and privacy boundary.
