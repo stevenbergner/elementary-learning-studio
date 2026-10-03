@@ -81,6 +81,17 @@ npm run build:site
 npm run test:browser
 ```
 
+To try Mozilla's experimental, strictly on-device speech recognition in an
+isolated Firefox Nightly profile on x86-64 Linux:
+
+```bash
+./scripts/run_firefox_nightly.sh --desktop
+```
+
+This rootless launcher keeps Nightly separate from normal Firefox and opens the
+public studio. See [the Firefox Nightly voice test checklist](docs/FIREFOX_NIGHTLY_TEST.md)
+before reporting results upstream.
+
 ## Project map
 
 | Path | Purpose |
@@ -89,6 +100,7 @@ npm run test:browser
 | `src/family_math/generator.py` | Deterministic problem and LaTeX generation |
 | `scripts/build_pack.py` | Command-line entry point |
 | `scripts/summarize_progress.py` | Turns the CSV log into a compact Markdown report |
+| `scripts/run_firefox_nightly.sh` | Installs and launches an isolated Firefox Nightly voice-test profile |
 | `data/progress.csv` | Family-owned practice log; one row per session |
 | `docs/LEARNING_GUIDE.md` | How to use the materials without making speed the goal |
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
