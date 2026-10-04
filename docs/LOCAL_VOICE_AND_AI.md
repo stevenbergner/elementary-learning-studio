@@ -145,6 +145,7 @@ Mozilla's contribution documentation explicitly recommends coordinating on an ex
 - Keep speech fail-closed and capability-detected.
 - Test real Nightly model installation and microphone lifecycle on macOS.
 - Consume Local Speech Interface for adaptive final-word flushing and observable recognition events.
+- Resolve Firefox's ranked transcript alternatives through the studio's deterministic number-and-command grammar, rejecting conflicts rather than guessing.
 - Add browser tests for unavailable, downloadable, installed, denied, and unsupported-language states.
 - Collect voluntary, non-audio test notes for each language and environment.
 
@@ -167,5 +168,11 @@ learner interface.
 - Treat 4K as the first mobile context target; justify longer contexts with measured learning tasks rather than headline capacity.
 - Move to an Android native test harness for device coverage while monitoring Mozilla's open-web path.
 - Store curriculum rules and learner profiles as explicit local data, not hidden prompt state; use prompts to adapt presentation, not to erase governance.
+
+An LLM is not required for the arithmetic voice loop. The closed number and
+command grammar now produces structured intents locally and deterministically.
+A future local model should address genuinely open-ended language tasks and
+still propose intents through the same policy boundary; it should not replace
+the checked arithmetic, action authorization, or progress record.
 
 This sequence produces evidence: a working private speech surface, transparent browser behavior, multilingual learning experiments, device measurements, and upstream contributions. Those artifacts are the substance behind any later claim of senior technical leadership.

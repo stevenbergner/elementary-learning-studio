@@ -42,6 +42,7 @@ class SiteTests(unittest.TestCase):
 
     def test_scripts_are_local(self) -> None:
         self.assertEqual(self.parser.scripts, ["app.js"])
+        self.assertTrue((SITE_ROOT / "voice-intent.js").is_file())
 
     def test_no_tracking_or_remote_assets(self) -> None:
         lowered = self.html.lower()

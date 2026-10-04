@@ -353,6 +353,72 @@ test("flushes a retained final word on an adaptive utterance boundary", async ({
 });
 
 
+test("resolves one safe n-best alternative and rejects conflicting alternatives", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        window.__voiceRecognition = this;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitFinal(alternatives) {
+        const result = alternatives.map(([transcript, confidence]) => ({ transcript, confidence }));
+        result.isFinal = true;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+  await page.getByRole("button", { name: "Start voice input" }).click();
+
+  await page.evaluate(() => window.__voiceRecognition.emitFinal([
+    ["for tea too", 0.58],
+    ["forty two", 0.39],
+    ["forty two", 0.03],
+  ]));
+  await expect(page.locator("#answer")).toHaveValue("42");
+  await expect(page.locator("#voice-heard")).toContainText("matched alternative “forty two”");
+  const selected = await page.evaluate(() => window.__speechEvents.findLast((event) => event.type === "intent.proposed"));
+  expect(selected.payload.interpretation).toMatchObject({
+    kind: "number",
+    value: 42,
+    match: { selection: "alternative", text: "forty two" },
+  });
+
+  await page.evaluate(() => window.__voiceRecognition.emitFinal([
+    ["unclear", 0.5],
+    ["forty two", 0.3],
+    ["forty", 0.2],
+  ]));
+  await expect(page.locator("#answer")).toHaveValue("42");
+  await expect(page.locator("#voice-status")).toContainText("more than one possible number or command");
+  const rejected = await page.evaluate(() => window.__speechEvents.findLast((event) => event.type === "action.rejected"));
+  expect(rejected.payload.reason).toBe("recognition alternatives conflict");
+});
+
+
 test("completes a whole practice set from spoken numbers", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {

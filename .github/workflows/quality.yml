@@ -38,6 +38,7 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - run: npm run test:unit
       - name: Install project browser
         run: |
           if [[ "${{ matrix.project }}" == "ipad-webkit" ]]; then

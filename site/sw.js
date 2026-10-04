@@ -1,6 +1,6 @@
-const CACHE = "elementary-learning-studio-v8";
+const CACHE = "elementary-learning-studio-v9";
 const CORE = [
-  "./", "index.html", "voice-privacy.html", "styles.css", "app.js", "manifest.webmanifest", "icon.svg",
+  "./", "index.html", "voice-privacy.html", "styles.css", "app.js", "voice-intent.js", "manifest.webmanifest", "icon.svg",
   "vendor/local-speech-interface/index.js",
   "vendor/local-speech-interface/local-session.js",
   "vendor/local-speech-interface/local-policy.js",
