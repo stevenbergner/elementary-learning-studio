@@ -2,6 +2,9 @@ const SET_SIZE = 10;
 const STORAGE_KEY = "elementary-learning-studio-progress-v2";
 const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
+const SPEECH_PROTOCOL = "local-speech-interface/v0.1";
+const SPEECH_EVENT_NAME = "local-speech-interface:event";
+const VOICE_ADVANCE_DELAY_MS = 850;
 
 const operations = {
   addition: {
@@ -51,7 +54,11 @@ let RecognitionConstructor = null;
 let voiceActive = false;
 let voiceStarting = false;
 let voiceShouldRun = false;
+let voiceAudioActive = false;
 let voiceStartTimer = null;
+let voiceAdvanceTimer = null;
+let speechEventSequence = 0;
+const VOICE_TRACE_LIMIT = 40;
 
 const elements = Object.fromEntries(Object.entries({
   answer: "#answer", form: "#answer-form", check: "#check-answer", hintButton: "#show-hint", hint: "#hint-text",
@@ -63,7 +70,10 @@ const elements = Object.fromEntries(Object.entries({
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
   voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
   voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
-  voiceDownloadLabel: "#voice-download-label",
+  voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
+  voiceSignalDetail: "#voice-signal-detail", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
+  voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
+  voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -134,6 +144,7 @@ function makeSet(kind) {
 function currentQuestion() { return questions[index]; }
 
 function startSet(kind = operation) {
+  clearTimeout(voiceAdvanceTimer);
   if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input is off.");
   operation = kind;
   questions = makeSet(operation);
@@ -155,7 +166,9 @@ function startSet(kind = operation) {
 }
 
 function renderQuestion() {
+  clearTimeout(voiceAdvanceTimer);
   const question = currentQuestion();
+  const focusOwner = document.activeElement;
   elements.a.textContent = question.a;
   elements.b.textContent = question.b;
   elements.operator.textContent = operations[operation].symbol;
@@ -171,7 +184,11 @@ function renderQuestion() {
   elements.check.textContent = "Check my answer";
   elements.hintButton.hidden = false;
   readyForNext = false;
-  window.setTimeout(() => elements.answer.focus({ preventScroll: true }), 60);
+  window.setTimeout(() => {
+    if (document.activeElement === focusOwner || document.activeElement === document.body) {
+      elements.answer.focus({ preventScroll: true });
+    }
+  }, 60);
 }
 
 function checkAnswer() {
@@ -205,7 +222,10 @@ function checkAnswer() {
   }
 }
 
-function nextQuestion() { index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet(); }
+function nextQuestion() {
+  clearTimeout(voiceAdvanceTimer);
+  index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet();
+}
 
 function finishSet() {
   if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input stopped because the set is complete.");
@@ -392,32 +412,264 @@ function downloadAward() {
   download(svg, `${safeFilename(session.learner)}-practice-award.svg`, "image/svg+xml;charset=utf-8");
 }
 
-const numberWords = {
+const smallEnglish = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
-  zéro: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
-  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, "dix-sept": 17, "dix-huit": 18, "dix-neuf": 19, vingt: 20,
-  null: 0, eins: 1, ein: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10,
-  elf: 11, zwölf: 12, dreizehn: 13, vierzehn: 14, fünfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19, zwanzig: 20,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
 };
-function spokenNumber(transcript) {
-  const normalized = transcript.toLocaleLowerCase().trim().replace(/[.,!?]/g, "");
-  const digits = normalized.match(/\b\d{1,3}\b/);
-  if (digits) return Number(digits[0]);
-  return Object.hasOwn(numberWords, normalized) ? numberWords[normalized] : null;
+const englishTens = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const smallFrench = {
+  zéro: 0, zero: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9,
+  dix: 10, onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16,
+};
+const frenchTens = { vingt: 20, trente: 30, quarante: 40, cinquante: 50, soixante: 60 };
+const smallGerman = {
+  null: 0, ein: 1, eins: 1, eine: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9,
+  zehn: 10, elf: 11, zwölf: 12, dreizehn: 13, vierzehn: 14, fünfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19,
+};
+const germanTens = { zwanzig: 20, dreißig: 30, dreissig: 30, vierzig: 40, fünfzig: 50, sechzig: 60, siebzig: 70, achtzig: 80, neunzig: 90 };
+const smallVietnamese = {
+  "không": 0, "một": 1, "mốt": 1, hai: 2, ba: 3, "bốn": 4, "tư": 4, "năm": 5, "lăm": 5,
+  "sáu": 6, "bảy": 7, "tám": 8, "chín": 9,
+};
+
+function normalizeSpeechText(value) {
+  return value.toLocaleLowerCase().trim().replace(/[.,!?;:]/gu, "").replace(/[‐‑‒–—-]/gu, " ").replace(/\s+/g, " ");
 }
-function handleVoice(transcript) {
-  const phrase = transcript.toLocaleLowerCase().trim();
-  elements.voiceStatus.textContent = `Heard: “${transcript}”`;
-  if (/\b(stop|arrête|arrete|stopp)\b/.test(phrase)) return stopVoice();
-  if (/\b(check|enter|vérifie|verifie|prüfen|pruefen)\b/.test(phrase)) return checkAnswer();
-  if (/\b(next|suivant|weiter)\b/.test(phrase)) {
-    if (readyForNext) nextQuestion(); else elements.voiceStatus.textContent = "Solve and check this question before moving on.";
-    return;
+
+function parseEnglish(tokens) {
+  if (tokens.length === 1 && Object.hasOwn(smallEnglish, tokens[0])) return smallEnglish[tokens[0]];
+  const hundredAt = tokens.indexOf("hundred");
+  if (hundredAt >= 0) {
+    const prefix = tokens.slice(0, hundredAt).filter((token) => token !== "and");
+    const hundreds = prefix.length ? parseEnglish(prefix) : 1;
+    const rest = tokens.slice(hundredAt + 1).filter((token) => token !== "and");
+    const remainder = rest.length ? parseEnglish(rest) : 0;
+    return hundreds !== null && remainder !== null ? hundreds * 100 + remainder : null;
+  }
+  const words = tokens.filter((token) => token !== "and");
+  if (words.length === 1 && Object.hasOwn(englishTens, words[0])) return englishTens[words[0]];
+  if (words.length === 2 && Object.hasOwn(englishTens, words[0]) && Object.hasOwn(smallEnglish, words[1]) && smallEnglish[words[1]] < 10) {
+    return englishTens[words[0]] + smallEnglish[words[1]];
+  }
+  return null;
+}
+
+function parseFrenchUnderHundred(tokens) {
+  const words = tokens.filter((token) => token !== "et");
+  if (words.length === 1 && Object.hasOwn(smallFrench, words[0])) return smallFrench[words[0]];
+  if (words.length === 1 && Object.hasOwn(frenchTens, words[0])) return frenchTens[words[0]];
+  if (words[0] === "quatre" && words[1] === "vingt") {
+    const remainder = words.length === 2 ? 0 : parseFrenchUnderHundred(words.slice(2));
+    return remainder !== null && remainder < 20 ? 80 + remainder : null;
+  }
+  if (words[0] === "soixante" && words.length > 1) {
+    const remainder = parseFrenchUnderHundred(words.slice(1));
+    return remainder !== null && remainder < 20 ? 60 + remainder : null;
+  }
+  if (Object.hasOwn(frenchTens, words[0]) && words.length === 2 && Object.hasOwn(smallFrench, words[1]) && smallFrench[words[1]] < 10) {
+    return frenchTens[words[0]] + smallFrench[words[1]];
+  }
+  if (words[0] === "dix" && words.length === 2 && Object.hasOwn(smallFrench, words[1]) && smallFrench[words[1]] < 10) {
+    return 10 + smallFrench[words[1]];
+  }
+  return null;
+}
+
+function parseFrench(tokens) {
+  const hundredAt = tokens.findIndex((token) => token === "cent" || token === "cents");
+  if (hundredAt >= 0) {
+    const prefix = tokens.slice(0, hundredAt);
+    const hundreds = prefix.length ? parseFrenchUnderHundred(prefix) : 1;
+    const rest = tokens.slice(hundredAt + 1);
+    const remainder = rest.length ? parseFrenchUnderHundred(rest) : 0;
+    return hundreds !== null && remainder !== null ? hundreds * 100 + remainder : null;
+  }
+  return parseFrenchUnderHundred(tokens);
+}
+
+function parseGermanCompact(compact) {
+  if (Object.hasOwn(smallGerman, compact)) return smallGerman[compact];
+  if (Object.hasOwn(germanTens, compact)) return germanTens[compact];
+  const hundredAt = compact.indexOf("hundert");
+  if (hundredAt >= 0) {
+    const prefix = compact.slice(0, hundredAt);
+    const rest = compact.slice(hundredAt + "hundert".length);
+    const hundreds = prefix ? parseGermanCompact(prefix) : 1;
+    const remainder = rest ? parseGermanCompact(rest) : 0;
+    return hundreds !== null && remainder !== null ? hundreds * 100 + remainder : null;
+  }
+  for (const [tensWord, tens] of Object.entries(germanTens)) {
+    if (!compact.endsWith(tensWord)) continue;
+    const unitWord = compact.slice(0, -tensWord.length).replace(/und$/, "");
+    const unit = smallGerman[unitWord];
+    if (Number.isInteger(unit) && unit > 0 && unit < 10 && compact.includes("und")) return tens + unit;
+  }
+  return null;
+}
+
+function parseVietnameseUnderHundred(tokens) {
+  if (tokens.length === 1 && Object.hasOwn(smallVietnamese, tokens[0])) return smallVietnamese[tokens[0]];
+  if (tokens[0] === "mười") {
+    if (tokens.length === 1) return 10;
+    return tokens.length === 2 && Object.hasOwn(smallVietnamese, tokens[1]) ? 10 + smallVietnamese[tokens[1]] : null;
+  }
+  const tens = smallVietnamese[tokens[0]];
+  if (Number.isInteger(tens) && tens > 0 && tokens[1] === "mươi") {
+    if (tokens.length === 2) return tens * 10;
+    return tokens.length === 3 && Object.hasOwn(smallVietnamese, tokens[2]) ? tens * 10 + smallVietnamese[tokens[2]] : null;
+  }
+  return null;
+}
+
+function parseVietnamese(tokens) {
+  const hundredAt = tokens.indexOf("trăm");
+  if (hundredAt >= 0) {
+    const hundreds = parseVietnameseUnderHundred(tokens.slice(0, hundredAt));
+    const rest = tokens.slice(hundredAt + 1).filter((token) => token !== "lẻ" && token !== "linh");
+    const remainder = rest.length ? parseVietnameseUnderHundred(rest) : 0;
+    return hundreds !== null && remainder !== null ? hundreds * 100 + remainder : null;
+  }
+  return parseVietnameseUnderHundred(tokens);
+}
+
+function spokenNumber(transcript) {
+  const normalized = normalizeSpeechText(transcript);
+  if (/^\d{1,3}$/.test(normalized)) return Number(normalized);
+  const tokens = normalized.split(" ");
+  const parsers = [parseEnglish(tokens), parseFrench(tokens), parseGermanCompact(tokens.join("")), parseVietnamese(tokens)];
+  const match = parsers.find((value) => Number.isInteger(value) && value >= 0 && value <= 999);
+  return match ?? null;
+}
+
+function emitSpeechInterfaceEvent(type, payload = {}) {
+  const event = {
+    protocol: SPEECH_PROTOCOL,
+    id: makeId(),
+    sequence: speechEventSequence++,
+    type,
+    timestamp: new Date().toISOString(),
+    source: {
+      adapter: "firefox-web-speech",
+      locale: elements.voiceLanguage?.value || "und",
+      audioSource: "microphone",
+      localProcessing: "verified",
+    },
+    payload: structuredClone(payload),
+    privacy: { networkUsed: false, retention: "memory" },
+  };
+  window.dispatchEvent(new CustomEvent(SPEECH_EVENT_NAME, { detail: event }));
+  return event;
+}
+
+function setVoiceSignal(state, label, detail) {
+  if (!elements.voiceSignal) return;
+  elements.voiceSignal.dataset.state = state;
+  elements.voiceSignalLabel.textContent = label;
+  elements.voiceSignalDetail.textContent = detail;
+}
+
+function formatConfidence(confidence) {
+  return Number.isFinite(confidence) && confidence > 0 ? `${Math.round(confidence * 100)}% confidence` : "confidence not reported";
+}
+
+function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "" }) {
+  if (!elements.voiceDebugEnabled?.checked) return;
+  const item = document.createElement("li");
+  item.dataset.kind = kind;
+  const heading = document.createElement("strong");
+  const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  heading.textContent = `${timestamp} · ${kind}`;
+  item.append(heading);
+
+  const raw = document.createElement("span");
+  raw.textContent = transcript ? `browser text: “${transcript}”` : "browser text: none";
+  item.append(raw);
+
+  if (alternatives.length) {
+    const choices = document.createElement("span");
+    choices.textContent = `alternatives: ${alternatives.map((choice) => `“${choice.transcript}” (${formatConfidence(choice.confidence)})`).join(" · ")}`;
+    item.append(choices);
+  }
+
+  if (action) {
+    const interpreted = document.createElement("span");
+    interpreted.textContent = `studio action: ${action}`;
+    item.append(interpreted);
+  }
+
+  elements.voiceTrace.append(item);
+  while (elements.voiceTrace.children.length > VOICE_TRACE_LIMIT) elements.voiceTrace.firstElementChild.remove();
+  elements.voiceDebugState.textContent = `${elements.voiceTrace.children.length} event${elements.voiceTrace.children.length === 1 ? "" : "s"} in memory.`;
+  item.scrollIntoView({ block: "nearest" });
+}
+
+function interpretVoice(transcript) {
+  const phrase = normalizeSpeechText(transcript);
+  if (["stop", "arrête", "arrete", "stopp", "dừng"].includes(phrase)) return { kind: "command", action: "stop voice input" };
+  if (["check", "enter", "vérifie", "verifie", "prüfen", "pruefen", "kiểm tra"].includes(phrase)) return { kind: "command", action: "check the current answer" };
+  if (["next", "suivant", "weiter", "tiếp theo"].includes(phrase)) {
+    return readyForNext
+      ? { kind: "command", action: "move to the next question" }
+      : { kind: "command", action: "do not move yet; the current question is not complete" };
   }
   const number = spokenNumber(phrase);
-  if (number !== null && !elements.answer.disabled) { elements.answer.value = String(number); elements.answer.focus(); }
-  else elements.voiceStatus.textContent = "I did not match that to a number or an available command.";
+  if (number !== null && !elements.answer.disabled) return { kind: "number", value: number, action: `enter and check ${number}` };
+  return { kind: "unmatched", action: "none; no number or available command matched" };
+}
+
+function scheduleVoiceAdvance() {
+  clearTimeout(voiceAdvanceTimer);
+  const finishing = index === SET_SIZE - 1;
+  elements.voiceStatus.textContent = finishing
+    ? "Correct. Completing this practice set…"
+    : "Correct. Moving to the next question…";
+  voiceAdvanceTimer = setTimeout(nextQuestion, VOICE_ADVANCE_DELAY_MS);
+}
+
+function handleVoice(transcript, alternatives = []) {
+  const interpretation = interpretVoice(transcript);
+  emitSpeechInterfaceEvent("recognition.final", {
+    transcript,
+    alternatives: alternatives.map((choice) => ({ text: choice.transcript, confidence: choice.confidence })),
+  });
+  emitSpeechInterfaceEvent("intent.proposed", { interpretation });
+  elements.voiceHeard.textContent = `Browser text: “${transcript}” → ${interpretation.action}.`;
+  addVoiceTrace({ kind: "final", transcript, alternatives, action: interpretation.action });
+
+  if (interpretation.action === "stop voice input") {
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
+    return stopVoice("Voice input stopped by spoken command.");
+  }
+  if (interpretation.action === "check the current answer") {
+    elements.voiceStatus.textContent = "Voice command: check the current answer.";
+    checkAnswer();
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
+    if (readyForNext) scheduleVoiceAdvance();
+    return interpretation;
+  }
+  if (interpretation.action === "move to the next question") {
+    elements.voiceStatus.textContent = "Voice command: next question.";
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
+    nextQuestion();
+    return interpretation;
+  }
+  if (interpretation.kind === "command") {
+    emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "current question is incomplete" });
+    elements.voiceStatus.textContent = "Solve and check this question before moving on.";
+    return interpretation;
+  }
+  if (interpretation.kind === "number") {
+    elements.answer.value = String(interpretation.value);
+    elements.answer.focus();
+    checkAnswer();
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
+    if (readyForNext) scheduleVoiceAdvance();
+    else elements.voiceStatus.textContent = `${interpretation.value} was checked. Try another answer.`;
+    return interpretation;
+  }
+  emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "no safe intent matched" });
+  elements.voiceStatus.textContent = "I did not match that to a number or an available command.";
+  return interpretation;
 }
 function supportsLocalSpeech() {
   return recognition && "processLocally" in recognition
@@ -436,7 +688,8 @@ function showVoiceDownload(show, language = elements.voiceLanguage.value) {
 
 async function prepareVoice() {
   recognition.lang = elements.voiceLanguage.value;
-  if (!supportsLocalSpeech()) return;
+  recognition.processLocally = true;
+  if (!supportsLocalSpeech()) return false;
 
   let status;
   try {
@@ -446,15 +699,16 @@ async function prepareVoice() {
       quality: "command",
     });
   } catch (_) {
-    recognition.processLocally = false;
-    return;
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    stopVoice("This browser could not confirm on-device recognition. Voice remains off to protect privacy.");
+    return false;
   }
 
   if (status === "available") {
     recognition.processLocally = true;
     elements.voiceAvailability.textContent = "Private on-device speech ready";
-    elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
-    return;
+    elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
+    return true;
   }
 
   if (status === "downloadable" || status === "downloading") {
@@ -471,28 +725,29 @@ async function prepareVoice() {
     if (installed) {
       recognition.processLocally = true;
       elements.voiceAvailability.textContent = "Private on-device speech ready";
-      elements.voicePrivacy.textContent = "Audio is processed on this device and is never sent by the studio or the browser speech recognizer.";
+      elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
       elements.voiceStatus.textContent = "Local language pack ready. Starting the microphone…";
-      return;
+      return true;
     }
-    recognition.processLocally = false;
-    elements.voiceAvailability.textContent = "Browser speech service";
-    elements.voiceStatus.textContent = "The local pack was unavailable. Trying the browser’s speech service…";
-    return;
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    stopVoice("The local language pack was not installed. Voice remains off; this studio never falls back to an online speech service.");
+    return false;
   }
 
-  recognition.processLocally = false;
-  elements.voiceAvailability.textContent = "Browser speech service";
-  elements.voiceStatus.textContent = "The browser may use its own online speech service.";
+  elements.voiceAvailability.textContent = "Private local speech unavailable";
+  stopVoice("The selected language is not available for on-device recognition. Voice remains off; keyboard and touch still work.");
+  return false;
 }
 
 function beginRecognition() {
   if (!recognition || !voiceShouldRun) return;
   voiceStarting = true;
+  voiceAudioActive = false;
   elements.voiceButton.disabled = false;
   elements.voiceButton.textContent = "Cancel voice start";
   elements.voiceButton.setAttribute("aria-busy", "true");
   elements.voiceStatus.textContent = "Waiting for the browser to start listening…";
+  setVoiceSignal("preparing", "Starting local speech", "The browser has not confirmed microphone capture yet.");
   clearTimeout(voiceStartTimer);
   voiceStartTimer = setTimeout(() => {
     if (!voiceActive && voiceShouldRun) {
@@ -513,9 +768,11 @@ async function startVoice() {
   elements.voiceButton.textContent = "Cancel voice start";
   elements.voiceButton.setAttribute("aria-busy", "true");
   elements.voiceStatus.textContent = "Preparing the browser’s speech interface…";
+  elements.voiceHeard.textContent = "Waiting for recognized words…";
+  setVoiceSignal("preparing", "Preparing local speech", "Checking the on-device language pack before opening the microphone.");
   try {
-    await prepareVoice();
-    if (!voiceShouldRun) return;
+    const localReady = await prepareVoice();
+    if (!localReady || !voiceShouldRun) return;
     beginRecognition();
   } catch (_) {
     stopVoice("The browser could not prepare voice input. Keyboard and touch still work.");
@@ -556,7 +813,17 @@ function setupVoice() {
     elements.voiceLanguage.disabled = true;
     return;
   }
-  Object.assign(recognition, { continuous: true, interimResults: false, maxAlternatives: 3 });
+  if (!supportsLocalSpeech()) {
+    recognition = null;
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    elements.voiceStatus.textContent = "This browser does not expose verified on-device speech recognition. Online recognition is intentionally disabled.";
+    elements.voiceButton.textContent = "Local voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
+  recognition.processLocally = true;
+  Object.assign(recognition, { continuous: true, interimResults: true, maxAlternatives: 3 });
   recognition.addEventListener("start", () => {
     clearTimeout(voiceStartTimer);
     voiceStarting = false;
@@ -564,36 +831,85 @@ function setupVoice() {
     elements.voiceButton.textContent = "Stop voice input";
     elements.voiceButton.setAttribute("aria-pressed", "true");
     elements.voiceButton.setAttribute("aria-busy", "false");
-    elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
+    elements.voiceStatus.textContent = "Speech session started. Waiting for microphone capture…";
+    setVoiceSignal("preparing", "Speech session active", "Waiting for the browser’s microphone-start event.");
   });
+  recognition.addEventListener("audiostart", () => {
+    voiceAudioActive = true;
+    elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
+    setVoiceSignal("listening", "Microphone active", "Firefox has confirmed that audio capture started.");
+    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture" });
+    emitSpeechInterfaceEvent("audio.state", { state: "capturing" });
+  });
+  recognition.addEventListener("audioend", () => {
+    voiceAudioActive = false;
+    if (voiceShouldRun) setVoiceSignal("preparing", "Microphone paused", "The browser ended this audio segment and may restart it.");
+    addVoiceTrace({ kind: "audio end", action: "browser ended microphone capture" });
+    emitSpeechInterfaceEvent("audio.state", { state: "paused" });
+  });
+  const showSpeechDetected = () => {
+    if (!voiceShouldRun) return;
+    setVoiceSignal("hearing", "Speech detected", "The browser reports sound or speech in the active microphone stream.");
+  };
+  const showListeningAgain = () => {
+    if (voiceShouldRun && voiceAudioActive) setVoiceSignal("listening", "Microphone active", "Listening for the next number or command.");
+  };
+  recognition.addEventListener("soundstart", showSpeechDetected);
+  recognition.addEventListener("speechstart", showSpeechDetected);
+  recognition.addEventListener("soundend", showListeningAgain);
+  recognition.addEventListener("speechend", showListeningAgain);
   recognition.addEventListener("result", (event) => {
     const result = event.results[event.results.length - 1];
-    if (result.isFinal) handleVoice(result[0].transcript);
+    const alternatives = [];
+    for (let choice = 0; choice < result.length; choice += 1) {
+      alternatives.push({ transcript: result[choice].transcript.trim(), confidence: result[choice].confidence });
+    }
+    const transcript = alternatives[0]?.transcript || "";
+    if (!result.isFinal) {
+      elements.voiceHeard.textContent = transcript ? `Hearing: “${transcript}”…` : "Hearing speech…";
+      setVoiceSignal("hearing", "Speech detected", "Interim text is arriving from the local recognizer.");
+      addVoiceTrace({ kind: "interim", transcript, alternatives, action: "wait for a final result" });
+      emitSpeechInterfaceEvent("recognition.interim", {
+        transcript,
+        alternatives: alternatives.map((choice) => ({ text: choice.transcript, confidence: choice.confidence })),
+      });
+      return;
+    }
+    setVoiceSignal("processing", "Processing recognized words", "Matching the final browser text to the studio’s small command set.");
+    handleVoice(transcript, alternatives);
+    if (voiceShouldRun && voiceAudioActive) setVoiceSignal("listening", "Microphone active", "Listening for the next number or command.");
   });
   recognition.addEventListener("error", (event) => {
     if (event.error === "aborted" && !voiceShouldRun) return;
+    addVoiceTrace({ kind: "error", action: voiceErrorMessage(event.error) });
+    emitSpeechInterfaceEvent("recognition.error", { code: event.error, message: voiceErrorMessage(event.error) });
     if (event.error === "no-speech" && voiceShouldRun) {
       elements.voiceStatus.textContent = voiceErrorMessage(event.error);
       return;
     }
     stopVoice(voiceErrorMessage(event.error));
+    setVoiceSignal("error", "Voice input error", voiceErrorMessage(event.error));
   });
   recognition.addEventListener("end", () => {
     voiceActive = false;
     voiceStarting = false;
+    voiceAudioActive = false;
     if (voiceShouldRun) beginRecognition();
   });
   elements.voiceButton.disabled = false;
   elements.voiceLanguage.disabled = false;
-  elements.voiceAvailability.textContent = supportsLocalSpeech() ? "Browser speech · local option checked on start" : "Browser speech service";
+  elements.voiceAvailability.textContent = "On-device speech · checked before listening";
   elements.voiceStatus.textContent = "Ready when you choose voice input.";
+  setVoiceSignal("off", "Microphone off", "No audio is being captured.");
 }
 
 function stopVoice(message = "Voice input is off.") {
   clearTimeout(voiceStartTimer);
+  clearTimeout(voiceAdvanceTimer);
   voiceShouldRun = false;
   voiceStarting = false;
   voiceActive = false;
+  voiceAudioActive = false;
   showVoiceDownload(false);
   if (elements.voiceButton) {
     elements.voiceButton.textContent = recognition ? "Start voice input" : "Voice unavailable";
@@ -602,6 +918,7 @@ function stopVoice(message = "Voice input is off.") {
     elements.voiceButton.disabled = !recognition;
   }
   if (elements.voiceStatus) elements.voiceStatus.textContent = message;
+  setVoiceSignal("off", "Microphone off", "No audio is being captured.");
   if (recognition) {
     try { recognition.abort(); } catch (_) { /* It was already stopped. */ }
   }
@@ -647,6 +964,18 @@ elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarti
 elements.voiceLanguage.addEventListener("change", () => {
   if (voiceActive || voiceStarting) stopVoice("Language changed. Start voice input again when ready.");
   if (recognition) elements.voiceStatus.textContent = "Language changed. Ready when you choose voice input.";
+});
+elements.voiceDebugEnabled.addEventListener("change", () => {
+  elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
+  if (elements.voiceDebugEnabled.checked) elements.voiceDebugState.textContent = "No recognition events yet.";
+  else {
+    elements.voiceTrace.replaceChildren();
+    elements.voiceDebugState.textContent = "No recognition events yet.";
+  }
+});
+elements.voiceDebugClear.addEventListener("click", () => {
+  elements.voiceTrace.replaceChildren();
+  elements.voiceDebugState.textContent = "No recognition events yet.";
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice input stopped when the page was hidden."); });
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

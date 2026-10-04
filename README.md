@@ -1,6 +1,8 @@
 # Elementary Learning Studio
 
-An open, reproducible studio for creating thoughtful elementary mathematics practice on paper and in the browser. The first printable pack uses the familiar 10 x 10 arithmetic-grid format, redesigned independently around accuracy, strategy, reflection, and steady progress. Timing is always optional.
+**An open framework for learner-owned studios.** The repository is a reproducible maker and governance layer: it holds the generators, activity contracts, curriculum decisions, privacy rules, tests, and reviewed examples. A **studio** is the experience those materials create on a learner's own device.
+
+The first activities focus on elementary mathematics. The first printable pack uses the familiar 10 x 10 arithmetic-grid format, redesigned independently around accuracy, strategy, reflection, and steady progress. Timing is always optional. The architecture is intentionally broader: language practice, spoken interaction, visual explanation, and other forms of elementary learning can grow here without turning learner activity into a cloud data product.
 
 ## Try it online
 
@@ -8,7 +10,7 @@ An open, reproducible studio for creating thoughtful elementary mathematics prac
 
 The progress panel shows first-try accuracy, retries, hints, facts worth revisiting, confidence, and recent sessions. Timing is opt-in per set and hidden in the standard view. Families can download ordinary CSV or xAPI-compatible JSON without sending learner data to a server. A downloadable practice award is deliberately labelled as an informal celebration, not a graded or verified credential.
 
-An unobtrusive answer-mode panel offers browser-provided speech recognition for English, French, and German numbers and a closed set of safe commands. It prefers the browser's private on-device language pack, shows language-pack setup progress, labels browser-service fallback honestly, and stays visibly unavailable rather than failing silently in unsupported browsers. No third-party speech model is bundled. See [Input methods and privacy](docs/INPUT_METHODS.md) for details and the decision to defer handwriting recognition.
+An unobtrusive answer-mode panel offers strictly on-device, browser-provided speech recognition for English, French, German, and Vietnamese numbers and a closed set of safe commands. A spoken answer is checked immediately; correct answers advance until the set completes. The studio verifies the local-processing API and language pack before listening, shows language-pack setup progress, and **never falls back to an online speech service**. Unsupported browsers stay visibly unavailable while keyboard and touch continue to work. Its observable events implement the sibling Local Speech Interface v0.1 contract, keeping recognition, intent, and accepted action distinct. See the public [Local voice and privacy brief](https://stevenbergner.github.io/elementary-learning-studio/voice-privacy.html), [Input methods and privacy](docs/INPUT_METHODS.md), and the technical [Local voice and AI research brief](docs/LOCAL_VOICE_AND_AI.md).
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
@@ -92,6 +94,16 @@ This user-local launcher keeps Nightly separate from normal Firefox and opens
 the public studio. See [the Firefox Nightly voice test checklist](docs/FIREFOX_NIGHTLY_TEST.md)
 before reporting results upstream.
 
+For local development, build the site, serve it only on this Mac, and open that
+working copy in the same isolated Nightly profile:
+
+```bash
+./scripts/run_firefox_nightly.sh --local
+```
+
+Keep that command running while testing and press Control-C to close the local
+server. Microphone access is still controlled by Firefox.
+
 ## Project map
 
 | Path | Purpose |
@@ -105,6 +117,8 @@ before reporting results upstream.
 | `docs/LEARNING_GUIDE.md` | How to use the materials without making speed the goal |
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
 | `docs/INPUT_METHODS.md` | Voice, pen, handwriting, and privacy decisions |
+| `docs/LOCAL_VOICE_AND_AI.md` | Browser evidence, local-AI architecture, mobile limits, and contribution roadmap |
+| `docs/POSITIONING_AND_ECOSYSTEM.md` | Brand architecture, market position, sustainable ecosystem, and feedback principles |
 | `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
 | `site/` | Dependency-free browser practice and project landing page |
@@ -128,5 +142,20 @@ External sources are cited for curriculum context and format research only. This
 - Progress is compared with the learner's own earlier work, never with another child.
 - A malformed entry is input feedback, not a recorded mathematical mistake.
 - Timing, microphone use, and downloads are each explicit learner or family choices.
+- Optional intelligence must be local, inspectable, replaceable, and fail closed when its privacy contract cannot be verified.
+
+## Development philosophy
+
+The repository does not present itself as the learner's studio. It is the open workshop that makes and audits studio experiences. That distinction matters:
+
+- curriculum claims belong beside reproducible activities and evidence;
+- privacy promises are enforced in code and tests, not left as marketing language;
+- exported records remain understandable without this software;
+- open source makes the implementation inspectable and forkable, but does not by itself prove that an educational or privacy claim is valid;
+- emerging capabilities are introduced as optional experiments with a dependable non-AI path.
+
+The aim is a curriculum that can respond, speak, and adapt while keeping the learner in control. Progress should become visible through artifacts, explanations, successful actions, and growing independence—not through opaque profiling or a single score.
+
+The name **Studio** belongs to that learner-facing experience; the repository is the **Studio framework and reference implementation**. See [Positioning the Studio and its ecosystem](docs/POSITIONING_AND_ECOSYSTEM.md) for the audience model, sustainable-service opportunities, and rules for any future feedback channel.
 
 See `docs/LEARNING_GUIDE.md` before using timed practice.

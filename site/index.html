@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f1e3">
-    <meta name="description" content="Original, printable and browser-based elementary mathematics practice for families and classrooms.">
+    <meta name="description" content="An open framework for learner-owned studios, beginning with private, printable and browser-based elementary mathematics practice.">
     <title>Elementary Learning Studio</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -23,6 +23,7 @@
         <a href="#practice">Practice</a>
         <a href="#print">Print</a>
         <a href="#approach">Approach</a>
+        <a href="#privacy">Privacy</a>
         <a class="source-link" href="https://github.com/stevenbergner/elementary-learning-studio">View source</a>
       </nav>
     </header>
@@ -30,7 +31,7 @@
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Open learning materials for growing minds</p>
+          <p class="eyebrow">An open framework for learner-owned studios</p>
           <h1 id="hero-title">Math you can <em>touch, try,</em> and make your own.</h1>
           <p class="lede">Short, original activities for elementary learners—on paper, on a tablet, or with a school laptop. Accuracy and strategy come before speed.</p>
           <div class="hero-actions">
@@ -161,23 +162,48 @@
                   <p id="voice-availability">Checking this browser…</p>
                 </div>
               </div>
+              <div class="voice-signal" id="voice-signal" data-state="off" role="status" aria-live="polite">
+                <span class="voice-signal-mark" aria-hidden="true"><span></span></span>
+                <span>
+                  <strong id="voice-signal-label">Microphone off</strong>
+                  <small id="voice-signal-detail">No audio is being captured.</small>
+                </span>
+              </div>
               <button class="button button-secondary voice-button" id="voice-toggle" type="button" aria-pressed="false" disabled>Start voice input</button>
               <label for="voice-language">Recognition language</label>
               <select id="voice-language" disabled>
                 <option value="en-US">English</option>
                 <option value="fr-FR">Français</option>
                 <option value="de-DE">Deutsch</option>
+                <option value="vi-VN">Tiếng Việt</option>
               </select>
               <div class="voice-download" id="voice-download" hidden>
                 <progress aria-label="Browser language pack download"></progress>
                 <span id="voice-download-label">The browser is downloading its local language pack. It does not report a percentage.</span>
               </div>
               <p class="voice-status" id="voice-status" aria-live="polite">Checking browser support…</p>
-              <p class="voice-privacy" id="voice-privacy">This studio uses only the browser’s speech interface. It does not include a third-party speech library or store audio.</p>
+              <p class="voice-heard" id="voice-heard">Recognized words will appear here while voice input is on.</p>
+              <p class="voice-privacy" id="voice-privacy">Voice is enabled only when the browser verifies on-device recognition. The studio does not record or transmit audio.</p>
               <details>
                 <summary>What can I say?</summary>
-                <p>Say a number, then “check” or “enter.” Say “next” after a correct answer. Say “stop” to turn voice input off.</p>
-                <p>When the browser offers an on-device language pack, the studio prefers it. Otherwise recognition is handled by the browser’s own speech service.</p>
+                <p>Say a number to enter and check it. A correct answer advances automatically; after the tenth answer, the set completes. You can also say “check,” “next,” or “stop.”</p>
+                <p>The studio requires an on-device language pack and never falls back to an online speech service. A successful transcription can support language practice, but it is not a standardized pronunciation score.</p>
+                <p><a href="voice-privacy.html">Read the local voice and browser brief</a></p>
+              </details>
+              <details class="voice-debug" id="voice-debug">
+                <summary>Developer voice trace</summary>
+                <p>This optional trace shows the text the browser returns, the interpretation chosen by the studio, and the resulting action. It stays only in memory and clears on reload.</p>
+                <label class="voice-debug-toggle" for="voice-debug-enabled">
+                  <input id="voice-debug-enabled" type="checkbox">
+                  <span>Show recognition events for this tab</span>
+                </label>
+                <div class="voice-debug-output" id="voice-debug-output" hidden>
+                  <div class="voice-debug-toolbar">
+                    <span id="voice-debug-state">No recognition events yet.</span>
+                    <button class="text-button" id="voice-debug-clear" type="button">Clear trace</button>
+                  </div>
+                  <ol class="voice-trace" id="voice-trace" aria-label="Voice recognition events"></ol>
+                </div>
               </details>
             </div>
           </aside>
@@ -304,6 +330,40 @@
         </div>
       </section>
 
+      <section class="privacy-section" id="privacy" aria-labelledby="privacy-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">The studio happens here</p>
+            <h2 id="privacy-title">A microphone without a listening service</h2>
+          </div>
+          <p>The repository is the maker and governance layer. What it produces is the studio: a learner-owned experience running on the learner’s own device.</p>
+        </div>
+        <div class="privacy-grid">
+          <article>
+            <span class="privacy-step">1</span>
+            <h3>You choose when to listen</h3>
+            <p>Voice starts only after a deliberate button press and the browser’s microphone permission. It stops when asked, when the page is hidden, or when a set ends.</p>
+          </article>
+          <article>
+            <span class="privacy-step">2</span>
+            <h3>The browser proves it is local</h3>
+            <p>The studio requires the standardized local-processing flag and checks for an installed on-device language pack. If either check fails, voice stays off.</p>
+          </article>
+          <article>
+            <span class="privacy-step">3</span>
+            <h3>No silent cloud fallback</h3>
+            <p>Microphone audio is processed by the browser on this device. The studio receives recognized text, does not keep audio, and does not send either one to a server.</p>
+          </article>
+        </div>
+        <div class="privacy-brief-link">
+          <div>
+            <strong>Firefox Nightly and current desktop Chrome can provide this local contract.</strong>
+            <p>Support is detected by capability, not by browser brand. Mobile browser support is not ready yet.</p>
+          </div>
+          <a class="button button-secondary" href="voice-privacy.html">Read the evidence and limitations</a>
+        </div>
+      </section>
+
       <section class="open-note" aria-labelledby="open-title">
         <div>
           <p class="eyebrow">Open by design</p>
@@ -316,7 +376,7 @@
 
     <footer>
       <p><strong>Elementary Learning Studio</strong><br>Made for thoughtful practice at home and at school.</p>
-      <p><a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/LICENSE">Code license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/CONTENT_LICENSE.md">Content license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/docs/SOURCES.md">Sources</a></p>
+      <p><a href="voice-privacy.html">Voice privacy</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/LICENSE">Code license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/CONTENT_LICENSE.md">Content license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/docs/SOURCES.md">Sources</a></p>
     </footer>
   </body>
 </html>

@@ -34,7 +34,7 @@ class SiteTests(unittest.TestCase):
         cls.parser.feed(cls.html)
 
     def test_required_sections_are_present(self) -> None:
-        self.assertTrue({"main", "practice", "print", "approach"}.issubset(self.parser.ids))
+        self.assertTrue({"main", "practice", "print", "approach", "privacy"}.issubset(self.parser.ids))
 
     def test_reviewed_pdf_is_linked(self) -> None:
         self.assertIn("pdfs/grade4_fluency-starter-pack.pdf", self.parser.links)
@@ -47,6 +47,15 @@ class SiteTests(unittest.TestCase):
         lowered = self.html.lower()
         for marker in ("google-analytics", "googletagmanager", "facebook.net", "hotjar"):
             self.assertNotIn(marker, lowered)
+
+    def test_public_voice_privacy_brief_is_local_and_fail_closed(self) -> None:
+        brief_path = SITE_ROOT / "voice-privacy.html"
+        self.assertTrue(brief_path.is_file())
+        brief = brief_path.read_text(encoding="utf-8")
+        self.assertIn("does not silently fall back", brief)
+        self.assertIn("Vietnamese", brief)
+        self.assertIn('href="styles.css"', brief)
+        self.assertNotIn("<script", brief.lower())
 
 
 if __name__ == "__main__":
