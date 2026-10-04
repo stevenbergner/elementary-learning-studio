@@ -1,9 +1,13 @@
+import {
+  LocalSpeechSession,
+  createSpeechEvent,
+  dispatchSpeechEvent,
+} from "./vendor/local-speech-interface/index.js";
+
 const SET_SIZE = 10;
 const STORAGE_KEY = "elementary-learning-studio-progress-v2";
 const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
-const SPEECH_PROTOCOL = "local-speech-interface/v0.1";
-const SPEECH_EVENT_NAME = "local-speech-interface:event";
 const VOICE_ADVANCE_DELAY_MS = 850;
 
 const operations = {
@@ -49,7 +53,7 @@ let readyForNext = false;
 let setStartedAt = null;
 let timerStartedAt = null;
 let lastSessionId = null;
-let recognition = null;
+let speechSession = null;
 let RecognitionConstructor = null;
 let voiceActive = false;
 let voiceStarting = false;
@@ -541,23 +545,13 @@ function spokenNumber(transcript) {
   return match ?? null;
 }
 
-function emitSpeechInterfaceEvent(type, payload = {}) {
-  const event = {
-    protocol: SPEECH_PROTOCOL,
-    id: makeId(),
-    sequence: speechEventSequence++,
-    type,
-    timestamp: new Date().toISOString(),
-    source: {
-      adapter: "firefox-web-speech",
-      locale: elements.voiceLanguage?.value || "und",
-      audioSource: "microphone",
-      localProcessing: "verified",
-    },
-    payload: structuredClone(payload),
-    privacy: { networkUsed: false, retention: "memory" },
-  };
-  window.dispatchEvent(new CustomEvent(SPEECH_EVENT_NAME, { detail: event }));
+function emitSpeechInterfaceEvent(type, payload = {}, adapter = "elementary-learning-studio") {
+  const event = createSpeechEvent({
+    sequence: speechEventSequence++, type, adapter,
+    locale: elements.voiceLanguage?.value || "und",
+    audioSource: "microphone", localProcessing: "verified", payload,
+  });
+  dispatchSpeechEvent(window, event);
   return event;
 }
 
@@ -587,7 +581,7 @@ function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "" }
 
   if (alternatives.length) {
     const choices = document.createElement("span");
-    choices.textContent = `alternatives: ${alternatives.map((choice) => `“${choice.transcript}” (${formatConfidence(choice.confidence)})`).join(" · ")}`;
+    choices.textContent = `alternatives: ${alternatives.map((choice) => `“${choice.text}” (${formatConfidence(choice.confidence)})`).join(" · ")}`;
     item.append(choices);
   }
 
@@ -628,10 +622,6 @@ function scheduleVoiceAdvance() {
 
 function handleVoice(transcript, alternatives = []) {
   const interpretation = interpretVoice(transcript);
-  emitSpeechInterfaceEvent("recognition.final", {
-    transcript,
-    alternatives: alternatives.map((choice) => ({ text: choice.transcript, confidence: choice.confidence })),
-  });
   emitSpeechInterfaceEvent("intent.proposed", { interpretation });
   elements.voiceHeard.textContent = `Browser text: “${transcript}” → ${interpretation.action}.`;
   addVoiceTrace({ kind: "final", transcript, alternatives, action: interpretation.action });
@@ -672,9 +662,78 @@ function handleVoice(transcript, alternatives = []) {
   return interpretation;
 }
 function supportsLocalSpeech() {
-  return recognition && "processLocally" in recognition
+  return speechSession
     && typeof RecognitionConstructor?.available === "function"
     && typeof RecognitionConstructor?.install === "function";
+}
+
+function handleSpeechSessionEvent(event) {
+  const { type, payload } = event;
+  if (type === "recognition.error" && payload.code === "aborted" && !voiceShouldRun) return;
+  emitSpeechInterfaceEvent(type, payload, event.source.adapter);
+
+  if (type === "audio.state" && payload.state === "capturing") {
+    clearTimeout(voiceStartTimer);
+    voiceStarting = false;
+    voiceActive = true;
+    voiceAudioActive = true;
+    elements.voiceButton.textContent = "Stop voice input";
+    elements.voiceButton.setAttribute("aria-pressed", "true");
+    elements.voiceButton.setAttribute("aria-busy", "false");
+    elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
+    setVoiceSignal("listening", "Microphone active", "Firefox has confirmed that audio capture started.");
+    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture" });
+    return;
+  }
+
+  if (type === "audio.state" && payload.state === "paused") {
+    voiceAudioActive = false;
+    if (voiceShouldRun) {
+      setVoiceSignal("processing", "Completing the last word", "The local speech layer is finalizing this utterance before listening again.");
+    }
+    addVoiceTrace({ kind: "audio end", action: "local speech segment finalized" });
+    return;
+  }
+
+  if (type === "recognition.interim") {
+    elements.voiceHeard.textContent = payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…";
+    setVoiceSignal("hearing", "Speech detected", "Interim text is arriving from the local recognizer.");
+    addVoiceTrace({
+      kind: "interim", transcript: payload.transcript, alternatives: payload.alternatives,
+      action: `wait up to ${payload.timing.adaptiveFlushMs} ms for the utterance boundary`,
+    });
+    return;
+  }
+
+  if (type === "recognition.final") {
+    setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
+    handleVoice(payload.transcript, payload.alternatives);
+    return;
+  }
+
+  if (type === "recognition.error") {
+    addVoiceTrace({ kind: "error", action: voiceErrorMessage(payload.code) });
+    if (payload.code === "no-speech" && voiceShouldRun) {
+      elements.voiceStatus.textContent = voiceErrorMessage(payload.code);
+      return;
+    }
+    stopVoice(voiceErrorMessage(payload.code));
+    setVoiceSignal("error", "Voice input error", voiceErrorMessage(payload.code));
+  }
+}
+
+function createSpeechSession() {
+  try {
+    speechSession = new LocalSpeechSession({
+      locale: elements.voiceLanguage.value,
+      Recognition: RecognitionConstructor,
+    });
+    speechSession.addEventListener("speech", ({ detail }) => handleSpeechSessionEvent(detail));
+    return true;
+  } catch (_) {
+    speechSession = null;
+    return false;
+  }
 }
 
 function showVoiceDownload(show, language = elements.voiceLanguage.value) {
@@ -687,14 +746,13 @@ function showVoiceDownload(show, language = elements.voiceLanguage.value) {
 }
 
 async function prepareVoice() {
-  recognition.lang = elements.voiceLanguage.value;
-  recognition.processLocally = true;
   if (!supportsLocalSpeech()) return false;
+  const language = elements.voiceLanguage.value;
 
   let status;
   try {
     status = await RecognitionConstructor.available({
-      langs: [recognition.lang],
+      langs: [language],
       processLocally: true,
       quality: "command",
     });
@@ -705,7 +763,7 @@ async function prepareVoice() {
   }
 
   if (status === "available") {
-    recognition.processLocally = true;
+    await speechSession.prepare();
     elements.voiceAvailability.textContent = "Private on-device speech ready";
     elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
     return true;
@@ -716,14 +774,14 @@ async function prepareVoice() {
     elements.voiceButton.textContent = "Cancel setup";
     elements.voiceStatus.textContent = "Waiting for the browser’s local language pack…";
     const installed = await RecognitionConstructor.install({
-      langs: [recognition.lang],
+      langs: [language],
       processLocally: true,
       quality: "command",
     });
     showVoiceDownload(false);
     if (!voiceShouldRun) return;
     if (installed) {
-      recognition.processLocally = true;
+      await speechSession.prepare();
       elements.voiceAvailability.textContent = "Private on-device speech ready";
       elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
       elements.voiceStatus.textContent = "Local language pack ready. Starting the microphone…";
@@ -740,7 +798,7 @@ async function prepareVoice() {
 }
 
 function beginRecognition() {
-  if (!recognition || !voiceShouldRun) return;
+  if (!speechSession || !voiceShouldRun) return;
   voiceStarting = true;
   voiceAudioActive = false;
   elements.voiceButton.disabled = false;
@@ -755,14 +813,18 @@ function beginRecognition() {
     }
   }, 7000);
   try {
-    recognition.start();
+    speechSession.start();
   } catch (_) {
     stopVoice("Voice input could not start in this browser.");
   }
 }
 
 async function startVoice() {
-  if (!recognition || voiceActive || voiceStarting) return;
+  if (!RecognitionConstructor || voiceActive || voiceStarting) return;
+  if (!createSpeechSession()) {
+    stopVoice("This browser could not initialize verified local speech. Keyboard and touch still work.");
+    return;
+  }
   voiceShouldRun = true;
   voiceStarting = true;
   elements.voiceButton.textContent = "Cancel voice start";
@@ -802,10 +864,7 @@ function setupVoice() {
     return;
   }
 
-  try {
-    recognition = new RecognitionConstructor();
-  } catch (_) {
-    recognition = null;
+  if (!createSpeechSession()) {
     elements.voiceAvailability.textContent = "Unavailable in this browser";
     elements.voiceStatus.textContent = "This browser exposes a speech interface but could not initialize it. Keyboard and touch remain available.";
     elements.voiceButton.textContent = "Voice unavailable";
@@ -814,7 +873,7 @@ function setupVoice() {
     return;
   }
   if (!supportsLocalSpeech()) {
-    recognition = null;
+    speechSession = null;
     elements.voiceAvailability.textContent = "Private local speech unavailable";
     elements.voiceStatus.textContent = "This browser does not expose verified on-device speech recognition. Online recognition is intentionally disabled.";
     elements.voiceButton.textContent = "Local voice unavailable";
@@ -822,80 +881,6 @@ function setupVoice() {
     elements.voiceLanguage.disabled = true;
     return;
   }
-  recognition.processLocally = true;
-  Object.assign(recognition, { continuous: true, interimResults: true, maxAlternatives: 3 });
-  recognition.addEventListener("start", () => {
-    clearTimeout(voiceStartTimer);
-    voiceStarting = false;
-    voiceActive = true;
-    elements.voiceButton.textContent = "Stop voice input";
-    elements.voiceButton.setAttribute("aria-pressed", "true");
-    elements.voiceButton.setAttribute("aria-busy", "false");
-    elements.voiceStatus.textContent = "Speech session started. Waiting for microphone capture…";
-    setVoiceSignal("preparing", "Speech session active", "Waiting for the browser’s microphone-start event.");
-  });
-  recognition.addEventListener("audiostart", () => {
-    voiceAudioActive = true;
-    elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
-    setVoiceSignal("listening", "Microphone active", "Firefox has confirmed that audio capture started.");
-    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture" });
-    emitSpeechInterfaceEvent("audio.state", { state: "capturing" });
-  });
-  recognition.addEventListener("audioend", () => {
-    voiceAudioActive = false;
-    if (voiceShouldRun) setVoiceSignal("preparing", "Microphone paused", "The browser ended this audio segment and may restart it.");
-    addVoiceTrace({ kind: "audio end", action: "browser ended microphone capture" });
-    emitSpeechInterfaceEvent("audio.state", { state: "paused" });
-  });
-  const showSpeechDetected = () => {
-    if (!voiceShouldRun) return;
-    setVoiceSignal("hearing", "Speech detected", "The browser reports sound or speech in the active microphone stream.");
-  };
-  const showListeningAgain = () => {
-    if (voiceShouldRun && voiceAudioActive) setVoiceSignal("listening", "Microphone active", "Listening for the next number or command.");
-  };
-  recognition.addEventListener("soundstart", showSpeechDetected);
-  recognition.addEventListener("speechstart", showSpeechDetected);
-  recognition.addEventListener("soundend", showListeningAgain);
-  recognition.addEventListener("speechend", showListeningAgain);
-  recognition.addEventListener("result", (event) => {
-    const result = event.results[event.results.length - 1];
-    const alternatives = [];
-    for (let choice = 0; choice < result.length; choice += 1) {
-      alternatives.push({ transcript: result[choice].transcript.trim(), confidence: result[choice].confidence });
-    }
-    const transcript = alternatives[0]?.transcript || "";
-    if (!result.isFinal) {
-      elements.voiceHeard.textContent = transcript ? `Hearing: “${transcript}”…` : "Hearing speech…";
-      setVoiceSignal("hearing", "Speech detected", "Interim text is arriving from the local recognizer.");
-      addVoiceTrace({ kind: "interim", transcript, alternatives, action: "wait for a final result" });
-      emitSpeechInterfaceEvent("recognition.interim", {
-        transcript,
-        alternatives: alternatives.map((choice) => ({ text: choice.transcript, confidence: choice.confidence })),
-      });
-      return;
-    }
-    setVoiceSignal("processing", "Processing recognized words", "Matching the final browser text to the studio’s small command set.");
-    handleVoice(transcript, alternatives);
-    if (voiceShouldRun && voiceAudioActive) setVoiceSignal("listening", "Microphone active", "Listening for the next number or command.");
-  });
-  recognition.addEventListener("error", (event) => {
-    if (event.error === "aborted" && !voiceShouldRun) return;
-    addVoiceTrace({ kind: "error", action: voiceErrorMessage(event.error) });
-    emitSpeechInterfaceEvent("recognition.error", { code: event.error, message: voiceErrorMessage(event.error) });
-    if (event.error === "no-speech" && voiceShouldRun) {
-      elements.voiceStatus.textContent = voiceErrorMessage(event.error);
-      return;
-    }
-    stopVoice(voiceErrorMessage(event.error));
-    setVoiceSignal("error", "Voice input error", voiceErrorMessage(event.error));
-  });
-  recognition.addEventListener("end", () => {
-    voiceActive = false;
-    voiceStarting = false;
-    voiceAudioActive = false;
-    if (voiceShouldRun) beginRecognition();
-  });
   elements.voiceButton.disabled = false;
   elements.voiceLanguage.disabled = false;
   elements.voiceAvailability.textContent = "On-device speech · checked before listening";
@@ -912,15 +897,15 @@ function stopVoice(message = "Voice input is off.") {
   voiceAudioActive = false;
   showVoiceDownload(false);
   if (elements.voiceButton) {
-    elements.voiceButton.textContent = recognition ? "Start voice input" : "Voice unavailable";
+    elements.voiceButton.textContent = speechSession ? "Start voice input" : "Voice unavailable";
     elements.voiceButton.setAttribute("aria-pressed", "false");
     elements.voiceButton.setAttribute("aria-busy", "false");
-    elements.voiceButton.disabled = !recognition;
+    elements.voiceButton.disabled = !speechSession;
   }
   if (elements.voiceStatus) elements.voiceStatus.textContent = message;
   setVoiceSignal("off", "Microphone off", "No audio is being captured.");
-  if (recognition) {
-    try { recognition.abort(); } catch (_) { /* It was already stopped. */ }
+  if (speechSession) {
+    try { speechSession.stop(); } catch (_) { /* It was already stopped. */ }
   }
 }
 
@@ -963,7 +948,7 @@ document.querySelector("#clear-all").addEventListener("click", () => {
 elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
 elements.voiceLanguage.addEventListener("change", () => {
   if (voiceActive || voiceStarting) stopVoice("Language changed. Start voice input again when ready.");
-  if (recognition) elements.voiceStatus.textContent = "Language changed. Ready when you choose voice input.";
+  if (speechSession) elements.voiceStatus.textContent = "Language changed. Ready when you choose voice input.";
 });
 elements.voiceDebugEnabled.addEventListener("change", () => {
   elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;

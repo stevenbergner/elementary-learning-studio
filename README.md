@@ -118,6 +118,7 @@ server. Microphone access is still controlled by Firefox.
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
 | `docs/INPUT_METHODS.md` | Voice, pen, handwriting, and privacy decisions |
 | `docs/LOCAL_VOICE_AND_AI.md` | Browser evidence, local-AI architecture, mobile limits, and contribution roadmap |
+| `site/vendor/local-speech-interface/` | MPL-2.0 browser snapshot providing verified local recognition and adaptive utterance finalization |
 | `docs/POSITIONING_AND_ECOSYSTEM.md` | Brand architecture, market position, sustainable ecosystem, and feedback principles |
 | `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |

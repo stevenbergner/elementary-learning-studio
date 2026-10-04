@@ -235,11 +235,18 @@ test("shows local language-pack progress and starts only after the browser confi
         this.dispatchEvent(new Event("audioend"));
         this.dispatchEvent(new Event("end"));
       }
+      stop() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
       emitResult(transcripts, isFinal) {
         const result = transcripts.map(([transcript, confidence]) => ({ transcript, confidence }));
         result.isFinal = isFinal;
         const event = new Event("result");
-        Object.defineProperty(event, "results", { value: [result] });
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
         this.dispatchEvent(event);
       }
     }
@@ -268,13 +275,13 @@ test("shows local language-pack progress and starts only after the browser confi
   await page.evaluate(() => window.__voiceRecognition.emitResult([["four", 0.61]], false));
   await expect(page.locator("#voice-heard")).toContainText("Hearing: “four”");
   await expect(page.locator("#voice-trace")).toContainText("interim");
-  await expect(page.locator("#voice-trace")).toContainText("wait for a final result");
+  await expect(page.locator("#voice-trace")).toContainText("wait up to 900 ms for the utterance boundary");
 
   await page.evaluate(() => window.__voiceRecognition.emitResult([["forty two", 0.87], ["forty", 0.08]], true));
   await expect(page.locator("#answer")).toHaveValue("42");
   await expect(page.locator("#voice-heard")).toContainText("enter and check 42");
   await expect(page.locator("#voice-trace")).toContainText("studio action: enter and check 42");
-  await expect(page.locator("#voice-debug-state")).toContainText("2 events in memory");
+  await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
   const speechEvents = await page.evaluate(() => window.__speechEvents);
   expect(speechEvents.some((event) => event.type === "recognition.interim")).toBeTruthy();
   expect(speechEvents.some((event) => event.type === "recognition.final" && event.payload.transcript === "forty two")).toBeTruthy();
@@ -285,6 +292,64 @@ test("shows local language-pack progress and starts only after the browser confi
   await page.getByRole("button", { name: "Stop voice input" }).click();
   await expect(page.locator("#voice-signal")).toHaveAttribute("data-state", "off");
   await expect(page.locator("#voice-signal-detail")).toHaveText("No audio is being captured.");
+});
+
+
+test("flushes a retained final word on an adaptive utterance boundary", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        window.__voiceRecognition = this;
+        window.__gracefulStops = 0;
+      }
+      start() {
+        this.dispatchEvent(new Event("audiostart"));
+      }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {
+        window.__gracefulStops += 1;
+        this.emitResult("forty two", true);
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitResult(transcript, isFinal) {
+        const result = [{ transcript, confidence: 0.95 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+
+  await page.getByRole("button", { name: "Start voice input" }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await page.evaluate(() => window.__voiceRecognition.emitResult("forty", false));
+  await expect(page.locator("#voice-heard")).toContainText("Hearing: “forty”");
+
+  await expect(page.locator("#answer")).toHaveValue("42", { timeout: 2_000 });
+  await expect.poll(() => page.evaluate(() => window.__gracefulStops)).toBe(1);
+  const events = await page.evaluate(() => window.__speechEvents);
+  const interim = events.find((event) => event.type === "recognition.interim");
+  expect(interim.payload.timing.adaptiveFlushMs).toBe(900);
+  expect(events.some((event) => event.type === "recognition.final" && event.payload.transcript === "forty two")).toBeTruthy();
 });
 
 
@@ -306,11 +371,18 @@ test("completes a whole practice set from spoken numbers", async ({ page }) => {
         this.dispatchEvent(new Event("audioend"));
         this.dispatchEvent(new Event("end"));
       }
+      stop() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
       emitFinal(transcript) {
         const result = [{ transcript, confidence: 0.99 }];
         result.isFinal = true;
         const event = new Event("result");
-        Object.defineProperty(event, "results", { value: [result] });
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
         this.dispatchEvent(event);
       }
     }

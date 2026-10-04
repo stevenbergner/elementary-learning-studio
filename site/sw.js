@@ -1,5 +1,12 @@
-const CACHE = "elementary-learning-studio-v7";
-const CORE = ["./", "index.html", "voice-privacy.html", "styles.css", "app.js", "manifest.webmanifest", "icon.svg"];
+const CACHE = "elementary-learning-studio-v8";
+const CORE = [
+  "./", "index.html", "voice-privacy.html", "styles.css", "app.js", "manifest.webmanifest", "icon.svg",
+  "vendor/local-speech-interface/index.js",
+  "vendor/local-speech-interface/local-session.js",
+  "vendor/local-speech-interface/local-policy.js",
+  "vendor/local-speech-interface/speech-event.js",
+  "vendor/local-speech-interface/dom-bridge.js",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));

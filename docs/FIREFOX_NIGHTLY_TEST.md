@@ -50,13 +50,17 @@ the server attached to the terminal. Press Control-C when finished.
    ten questions and confirm the completed-set view appears without using the
    keyboard. Also try “check” or “enter” after typing, “next” only after a
    correct answer, and “stop”.
-9. Record whether each number was interpreted correctly, whether an incorrect
+9. Say a short phrase ending in a distinctive word, then remain quiet. Confirm
+   that the final word appears without beginning another sentence. The LSI
+   adaptive boundary should normally finalize within 650–1400 ms after interim
+   results stop, although inference itself may add a small delay.
+10. Record whether each number was interpreted correctly, whether an incorrect
    answer stayed on the same question, whether commands behaved as described,
    and whether stopping voice mode released the microphone indicator.
-10. After a pack is installed, disconnect Wi-Fi, reload the local development
+11. After a pack is installed, disconnect Wi-Fi, reload the local development
    page, and repeat recognition. It should continue working. This distinguishes
    local inference from a server-backed speech service.
-11. Select an unsupported or unavailable language in a diagnostic build and
+12. Select an unsupported or unavailable language in a diagnostic build and
     confirm that the studio leaves voice off rather than falling back online.
 
 If the API is missing, open `about:config` and inspect
@@ -99,11 +103,12 @@ and Firefox displayed its own consent message:
 
 The user continued the model setup and granted the isolated Nightly profile
 microphone access. Firefox then reported the English local pack ready. A live
-test produced `audiostart`, sound/speech, interim-result, final-result, and
-`audioend` events. The visible indicator followed those events, the in-memory
-trace showed incremental English text and browser-reported confidence, and the
-final result included words that had appeared delayed in the interim display.
-Using the button stopped capture and returned the indicator to **Microphone
-off**. Numeric insertion, every spoken command, other languages, and
-disconnected-network operation still need live verification; do not report
-those as passing yet.
+test produced `audiostart`, interim-result, final-result, and `audioend` events.
+Firefox initially retained the last word until later speech. LSI 0.2.0's
+adaptive 650–1400 ms graceful-finalization policy was then tested in the live
+microphone session: the retained word appeared after the speaker paused,
+without another utterance, and the user described the resulting delay as
+pleasant conversational pacing. Using the button stopped capture and returned
+the indicator to **Microphone off**. Numeric insertion, every spoken command,
+other languages, and disconnected-network operation still need live
+verification; do not report those as passing yet.

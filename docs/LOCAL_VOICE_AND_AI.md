@@ -144,8 +144,14 @@ Mozilla's contribution documentation explicitly recommends coordinating on an ex
 
 - Keep speech fail-closed and capability-detected.
 - Test real Nightly model installation and microphone lifecycle on macOS.
+- Consume Local Speech Interface for adaptive final-word flushing and observable recognition events.
 - Add browser tests for unavailable, downloadable, installed, denied, and unsupported-language states.
 - Collect voluntary, non-audio test notes for each language and environment.
+
+Elementary Learning Studio stops at the single-speaker boundary. Diarization,
+prosody, ambient-source analysis, and general language-model orchestration are
+LSI research or separate application concerns, not additions to the elementary
+learner interface.
 
 ### Next: language-learning prototype
 

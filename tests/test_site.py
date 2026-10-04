@@ -57,6 +57,16 @@ class SiteTests(unittest.TestCase):
         self.assertIn('href="styles.css"', brief)
         self.assertNotIn("<script", brief.lower())
 
+    def test_vendored_local_speech_interface_has_provenance(self) -> None:
+        vendor = SITE_ROOT / "vendor" / "local-speech-interface"
+        for name in ("index.js", "local-session.js", "local-policy.js", "speech-event.js", "dom-bridge.js"):
+            source = vendor / name
+            self.assertTrue(source.is_file())
+            self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
+        provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
+        self.assertIn("0.2.0", provenance)
+        self.assertIn("96d5564", provenance)
+
 
 if __name__ == "__main__":
     unittest.main()
