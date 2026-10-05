@@ -476,6 +476,81 @@ test("stops hidden-page capture while draining the word already heard", async ({
 });
 
 
+test("accepts a trailing spoken answer and lets next validate before advancing", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        window.__voiceRecognition = this;
+      }
+      start() {
+        this.dispatchEvent(new Event("audiostart"));
+      }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitFinal(transcript) {
+        const result = [{ transcript, confidence: 0.98 }];
+        result.isFinal = true;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  const answer = a + b;
+  const answerWords = await page.evaluate(async (value) => {
+    const { renderIntegerWords } = await import("./vendor/local-speech-interface/integer-domain.js");
+    return renderIntegerWords(value, "en");
+  }, answer);
+  await page.evaluate(
+    (utterance) => window.__voiceRecognition.emitFinal(utterance),
+    `I read ${a} plus ${b} and I think the answer is ${answerWords}`,
+  );
+  await expect(page.locator("#answer")).toHaveValue(String(answer));
+  await expect(page.locator("#voice-dock-heard")).toContainText("used trailing answer");
+
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
+  await expect(page.locator("#progress-label")).toHaveText("2 of 10", { timeout: 2_000 });
+
+  const nextA = Number(await page.locator("#operand-a").innerText());
+  const nextB = Number(await page.locator("#operand-b").innerText());
+  await page.locator("#answer").fill(String(nextA + nextB + 1));
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
+  await expect(page.locator("#progress-label")).toHaveText("2 of 10");
+  await expect(page.locator("#feedback")).toContainText("Not yet");
+  await expect(page.locator("#voice-status")).toContainText("not correct yet");
+
+  await page.locator("#answer").fill(String(nextA + nextB));
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
+  await expect(page.locator("#progress-label")).toHaveText("3 of 10", { timeout: 2_000 });
+
+  const gridCell = page.locator(".sudoku-cell:not(.is-given)").first();
+  await gridCell.hover();
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("I think this square should be three"));
+  await expect(gridCell).toHaveText("3");
+});
+
+
 test("resolves one safe n-best alternative and rejects conflicting alternatives", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {

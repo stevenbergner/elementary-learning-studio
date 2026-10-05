@@ -81,11 +81,43 @@ export function compileSurfaceDomain({ id, locales, entries, normalize = normali
     });
   }
 
+  function parseSuffix(surface, { locale = supportedLocales[0] } = {}) {
+    const selectedLocale = resolveLocale(supportedLocales, locale);
+    if (!selectedLocale) return Object.freeze({ kind: "none", reason: "unsupported-locale", locale: String(locale) });
+    const inputNormalized = normalize(surface, selectedLocale);
+    const tokens = inputNormalized.split(" ").filter(Boolean);
+    const table = tables.get(selectedLocale);
+    for (let start = 0; start < tokens.length; start += 1) {
+      const normalized = tokens.slice(start).join(" ");
+      const match = table.get(normalized);
+      if (!match) continue;
+      return Object.freeze({
+        kind: "one",
+        interpretation: Object.freeze({
+          value: structuredClone(match.value),
+          canonicalForm: match.canonicalForm,
+          canonicalKey: match.valueKey,
+          evidence: Object.freeze([Object.freeze({
+            surface: String(surface),
+            normalized,
+            inputNormalized,
+            locale: selectedLocale,
+            matchMode: start === 0 ? "exact" : "suffix",
+            discardedPrefix: tokens.slice(0, start).join(" "),
+            generatedSurfaces: Object.freeze([...match.surfaces]),
+          })]),
+        }),
+      });
+    }
+    return Object.freeze({ kind: "none", reason: "no-suffix-match", locale: selectedLocale, normalized: inputNormalized });
+  }
+
   return Object.freeze({
     id: domainId,
     locales: Object.freeze(supportedLocales),
     entryCount: [...tables.values()].reduce((sum, table) => sum + table.size, 0),
     parse,
+    parseSuffix,
   });
 }
 

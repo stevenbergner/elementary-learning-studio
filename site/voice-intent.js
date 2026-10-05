@@ -52,7 +52,8 @@ const voiceDomain = Object.freeze({
   parse(text, { locale } = {}) {
     const command = commandDomain.parse(text, { locale });
     if (command.kind === "one") return command;
-    const number = numberDomain.parse(text, { locale });
+    const exactNumber = numberDomain.parse(text, { locale });
+    const number = exactNumber.kind === "one" ? exactNumber : numberDomain.parseSuffix(text, { locale });
     if (number.kind !== "one") return number;
     return Object.freeze({
       kind: "one",
@@ -74,7 +75,7 @@ export function spokenNumber(transcript, { locale = "en" } = {}) {
   return result.kind === "one" ? result.interpretation.value : null;
 }
 
-function applyPermission(interpretation, { answerEnabled, readyForNext, autoCheck }) {
+function applyPermission(interpretation, { answerEnabled, answerPresent, readyForNext, autoCheck }) {
   const meaning = interpretation.value;
   if (meaning.kind === "number") {
     return answerEnabled
@@ -91,9 +92,11 @@ function applyPermission(interpretation, { answerEnabled, readyForNext, autoChec
       : { kind: "command", intent: "check", permitted: false, permission: "answer-unavailable", action: "do not check; answer input is unavailable" };
   }
   if (meaning.intent === "next") {
-    return readyForNext
-      ? { kind: "command", intent: "next", permitted: true, permission: "available", action: "move to the next question" }
-      : { kind: "command", intent: "next", permitted: false, permission: "question-incomplete", action: "do not move yet; the current question is not complete" };
+    if (readyForNext) return { kind: "command", intent: "next", permitted: true, permission: "available", action: "move to the next question" };
+    if (answerEnabled && answerPresent) {
+      return { kind: "command", intent: "next", permitted: true, permission: "check-before-next", action: "check the current answer and move if correct" };
+    }
+    return { kind: "command", intent: "next", permitted: false, permission: "question-incomplete", action: "do not move yet; the current question is not complete" };
   }
   throw new TypeError(`unknown interpreted command: ${meaning.intent}`);
 }
@@ -118,12 +121,12 @@ function attachEvidence(permitted, interpretation, match) {
 
 export function resolveVoiceIntent(
   { transcript = "", alternatives = [] } = {},
-  { answerEnabled = true, readyForNext = false, locale = "en", autoCheck = false } = {},
+  { answerEnabled = true, answerPresent = false, readyForNext = false, locale = "en", autoCheck = false } = {},
 ) {
   const resolution = resolveDomainEvidence({ transcript, alternatives }, voiceDomain, { locale });
   if (resolution.kind === "one") {
     return attachEvidence(
-      applyPermission(resolution.interpretation, { answerEnabled, readyForNext, autoCheck }),
+      applyPermission(resolution.interpretation, { answerEnabled, answerPresent, readyForNext, autoCheck }),
       resolution.interpretation,
       resolution.match,
     );

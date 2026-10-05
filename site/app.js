@@ -633,6 +633,7 @@ function handleVoice(transcript, alternatives = []) {
     { transcript, alternatives },
     {
       answerEnabled: targetingSudoku || !elements.answer.disabled,
+      answerPresent: !targetingSudoku && /^\d+$/.test(elements.answer.value.trim()),
       readyForNext: !targetingSudoku && readyForNext,
       locale: elements.voiceLanguage.value,
       autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
@@ -642,10 +643,12 @@ function handleVoice(transcript, alternatives = []) {
   const alternativeNote = interpretation.match?.selection === "alternative"
     ? `; matched alternative “${interpretation.match.text}”`
     : "";
-  setVoiceHeard(`Browser text: “${transcript}”${alternativeNote} → ${interpretation.action}.`);
+  const trailingEvidence = interpretation.semantic?.evidence?.find((item) => item.matchMode === "suffix");
+  const trailingNote = trailingEvidence ? `; used trailing answer “${trailingEvidence.normalized}”` : "";
+  setVoiceHeard(`Browser text: “${transcript}”${alternativeNote}${trailingNote} → ${interpretation.action}.`);
   addVoiceTrace({
     kind: "final", transcript, alternatives,
-    action: `${interpretation.action}${alternativeNote}`,
+    action: `${interpretation.action}${alternativeNote}${trailingNote}`,
   });
 
   if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
@@ -679,6 +682,13 @@ function handleVoice(transcript, alternatives = []) {
     setVoiceStatus("Voice command: next question.");
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
     nextQuestion();
+    return interpretation;
+  }
+  if (interpretation.action === "check the current answer and move if correct") {
+    checkAnswer();
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
+    if (readyForNext) scheduleVoiceAdvance();
+    else setVoiceStatus("I checked the entered answer. It is not correct yet, so this question stays here.");
     return interpretation;
   }
   if (interpretation.kind === "number") {

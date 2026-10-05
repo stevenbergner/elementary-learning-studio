@@ -29,6 +29,17 @@ test("accepts narrow multilingual answer frames without opening the grammar", ()
   assert.equal(resolveVoiceIntent({ transcript: "Die Antwort ist 42." }, { locale: "de-DE" }).value, 42);
 });
 
+test("extracts a generated answer from the utterance tail without opening command matching", () => {
+  const result = resolveVoiceIntent({ transcript: "I read nine plus six and the answer is fifteen." });
+  assert.equal(result.kind, "number");
+  assert.equal(result.value, 15);
+  assert.equal(result.semantic.evidence[0].matchMode, "suffix");
+  assert.equal(result.semantic.evidence[0].normalized, "the answer is fifteen");
+
+  assert.equal(resolveVoiceIntent({ transcript: "fifteen is not my answer" }).kind, "unmatched");
+  assert.equal(resolveVoiceIntent({ transcript: "please go next" }, { readyForNext: true }).kind, "unmatched");
+});
+
 test("uses the recognizer's primary valid number even when lower alternatives differ", () => {
   const result = resolveVoiceIntent({
     transcript: "forty two",
@@ -88,6 +99,9 @@ test("rejects conflicting actionable alternatives instead of guessing", () => {
 test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "next" }, { readyForNext: false }).permitted, false);
   assert.equal(resolveVoiceIntent({ transcript: "next" }, { readyForNext: true }).permitted, true);
+  const conditionalNext = resolveVoiceIntent({ transcript: "next" }, { answerPresent: true });
+  assert.equal(conditionalNext.permitted, true);
+  assert.equal(conditionalNext.permission, "check-before-next");
   assert.equal(resolveVoiceIntent({ transcript: "please go next" }).kind, "unmatched");
   assert.equal(resolveVoiceIntent({ transcript: "prüfen" }, { locale: "de" }).intent, "check");
   assert.equal(resolveVoiceIntent({ transcript: "dừng" }, { locale: "vi" }).intent, "stop");
