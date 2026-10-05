@@ -65,11 +65,12 @@ export class LocalSpeechSession extends EventTarget {
     this.#recognition.start();
   }
 
-  stop() {
+  stop({ finalizePending = false } = {}) {
     this.#running = false;
-    this.#finishingUtterance = false;
+    this.#finishingUtterance = finalizePending;
     this.#clearFlushTimer();
-    this.#recognition.abort();
+    if (finalizePending) this.#recognition.stop();
+    else this.#recognition.abort();
   }
 
   #event(type, payload = {}) {

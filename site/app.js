@@ -950,7 +950,7 @@ function setupVoice() {
   setVoiceSignal("off", "Microphone off", "No audio is being captured.");
 }
 
-function stopVoice(message = "Voice input is off.") {
+function stopVoice(message = "Voice input is off.", { finalizePending = false } = {}) {
   clearTimeout(voiceStartTimer);
   clearTimeout(voiceAdvanceTimer);
   voiceShouldRun = false;
@@ -968,7 +968,7 @@ function stopVoice(message = "Voice input is off.") {
   setVoiceSignal("off", "Microphone off", "No audio is being captured.");
   showVoiceDock(false);
   if (speechSession) {
-    try { speechSession.stop(); } catch (_) { /* It was already stopped. */ }
+    try { speechSession.stop({ finalizePending }); } catch (_) { /* It was already stopped. */ }
   }
 }
 
@@ -1041,7 +1041,11 @@ elements.sudokuNew.addEventListener("click", () => {
   const firstBlank = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex].puzzle.findIndex((value) => !value);
   activateSudokuCell(firstBlank, { focus: true });
 });
-document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice input stopped when the page was hidden."); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopVoice("Voice input stopped when the page was hidden; finishing the words already heard.", { finalizePending: true });
+  }
+});
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);

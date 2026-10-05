@@ -410,6 +410,72 @@ test("flushes a retained final word on an adaptive utterance boundary", async ({
 });
 
 
+test("stops hidden-page capture while draining the word already heard", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        this.pending = "";
+        window.__voiceRecognition = this;
+        window.__hiddenPageStops = 0;
+        window.__hiddenPageAborts = 0;
+      }
+      start() {
+        this.dispatchEvent(new Event("audiostart"));
+      }
+      abort() {
+        window.__hiddenPageAborts += 1;
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {
+        window.__hiddenPageStops += 1;
+        if (this.pending) this.emitResult(this.pending, true);
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitResult(transcript, isFinal) {
+        this.pending = transcript;
+        const result = [{ transcript, confidence: 0.97 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  const spokenAnswer = String(a + b);
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await page.evaluate((answer) => window.__voiceRecognition.emitResult(answer, false), spokenAnswer);
+  await expect(page.locator("#voice-dock-heard")).toContainText(spokenAnswer);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(page.locator("#answer")).toHaveValue(spokenAnswer);
+  await expect(page.locator("#voice-status")).toContainText(`${spokenAnswer} entered`);
+  await expect(page.getByRole("button", { name: /Start.*voice/ })).toBeVisible();
+  await expect(page.locator("#voice-dock")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__hiddenPageStops)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__hiddenPageAborts)).toBe(0);
+});
+
+
 test("resolves one safe n-best alternative and rejects conflicting alternatives", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {
