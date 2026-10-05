@@ -403,7 +403,7 @@ test("resolves one safe n-best alternative and rejects conflicting alternatives"
   await page.evaluate(() => window.__voiceRecognition.emitFinal([
     ["for tea too", 0.58],
     ["forty two", 0.39],
-    ["forty two", 0.03],
+    ["42", 0.03],
   ]));
   await expect(page.locator("#answer")).toHaveValue("42");
   await expect(page.locator("#voice-heard")).toContainText("matched alternative “forty two”");
@@ -423,6 +423,20 @@ test("resolves one safe n-best alternative and rejects conflicting alternatives"
   await expect(page.locator("#voice-status")).toContainText("more than one possible number or command");
   const rejected = await page.evaluate(() => window.__speechEvents.findLast((event) => event.type === "action.rejected"));
   expect(rejected.payload.reason).toBe("recognition alternatives conflict");
+
+  await page.evaluate(() => {
+    document.querySelector("#answer").disabled = true;
+    window.__voiceRecognition.emitFinal([["forty two", 0.9]]);
+  });
+  await expect(page.locator("#voice-status")).toContainText("recognized that input");
+  const unavailable = await page.evaluate(() => ({
+    intent: window.__speechEvents.findLast((event) => event.type === "intent.proposed"),
+    action: window.__speechEvents.findLast((event) => event.type === "action.rejected"),
+  }));
+  expect(unavailable.intent.payload.interpretation).toMatchObject({
+    kind: "number", value: 42, permitted: false, permission: "answer-unavailable",
+  });
+  expect(unavailable.action.payload.reason).toBe("answer-unavailable");
 });
 
 

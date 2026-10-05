@@ -60,13 +60,16 @@ class SiteTests(unittest.TestCase):
 
     def test_vendored_local_speech_interface_has_provenance(self) -> None:
         vendor = SITE_ROOT / "vendor" / "local-speech-interface"
-        for name in ("index.js", "capabilities.js", "local-session.js", "local-policy.js", "speech-event.js", "dom-bridge.js"):
+        for name in (
+            "index.js", "capabilities.js", "domain-grammar.js", "integer-domain.js",
+            "local-session.js", "local-policy.js", "speech-event.js", "dom-bridge.js",
+        ):
             source = vendor / name
             self.assertTrue(source.is_file())
             self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
         provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
-        self.assertIn("0.4.0", provenance)
-        self.assertIn("5392aef", provenance)
+        self.assertIn("0.5.0", provenance)
+        self.assertIn("fd8e996", provenance)
 
 
 if __name__ == "__main__":

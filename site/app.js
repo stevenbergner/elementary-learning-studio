@@ -481,7 +481,7 @@ function scheduleVoiceAdvance() {
 function handleVoice(transcript, alternatives = []) {
   const interpretation = resolveVoiceIntent(
     { transcript, alternatives },
-    { answerEnabled: !elements.answer.disabled, readyForNext },
+    { answerEnabled: !elements.answer.disabled, readyForNext, locale: elements.voiceLanguage.value },
   );
   emitSpeechInterfaceEvent("intent.proposed", { interpretation });
   const alternativeNote = interpretation.match?.selection === "alternative"
@@ -492,6 +492,14 @@ function handleVoice(transcript, alternatives = []) {
     kind: "final", transcript, alternatives,
     action: `${interpretation.action}${alternativeNote}`,
   });
+
+  if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
+    emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: interpretation.permission });
+    elements.voiceStatus.textContent = interpretation.permission === "question-incomplete"
+      ? "I recognized “next,” but this question must be solved and checked first."
+      : "I recognized that input, but the answer field is not available right now.";
+    return interpretation;
+  }
 
   if (interpretation.action === "stop voice input") {
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
@@ -508,11 +516,6 @@ function handleVoice(transcript, alternatives = []) {
     elements.voiceStatus.textContent = "Voice command: next question.";
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
     nextQuestion();
-    return interpretation;
-  }
-  if (interpretation.kind === "command") {
-    emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "current question is incomplete" });
-    elements.voiceStatus.textContent = "Solve and check this question before moving on.";
     return interpretation;
   }
   if (interpretation.kind === "number") {
