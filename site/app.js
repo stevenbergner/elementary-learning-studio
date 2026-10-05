@@ -25,6 +25,7 @@ const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/
 const VOICE_ADVANCE_DELAY_MS = 450;
 const VOICE_DEBUG_ENABLED_KEY = "els-voice-debug-enabled";
 const VOICE_DEBUG_BACKGROUND_KEY = "els-voice-debug-background";
+const SHORT_WORD_HELP_KEY = "els-short-word-help";
 const LOCAL_DEVELOPER_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 const operations = {
@@ -80,10 +81,19 @@ let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
 let interimCommandCommitter = null;
 let recognitionInput = null;
+// Recorded in diagnostic exports so a trace shows whether the opt-in ran.
+let shortWordHelpState = { requested: false, active: false, detail: "not requested" };
 // A spoken carrier played only into the recognizer after the learner falls
 // silent, so Firefox commits a lone word it would otherwise hold back. The
 // recognizer writes it as "ok" or "okay"; LSI removes those tokens.
-const SPEECH_CARRIER = Object.freeze({ url: "audio/speech-carrier-en.wav", tokens: Object.freeze(["ok", "okay"]) });
+// "oh" is the fragment left when a carrier is cut off by the next word.
+const SPEECH_CARRIER = Object.freeze({ url: "audio/speech-carrier-en.wav", tokens: Object.freeze(["ok", "okay", "oh"]) });
+const SHORT_WORD_METHOD_KEY = "els-short-word-method";
+// The published site uses the carrier; loopback developers can compare it with
+// finalizing at the page-detected silence (no carrier audio at all).
+function shortWordMethod() {
+  return localDeveloperMode() ? elements.voiceShortWordMethod.value : "carrier";
+}
 const VOICE_PRIVACY_BROWSER_CAPTURE = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
 const VOICE_PRIVACY_PAGE_CAPTURE = "Single-word help is on. The studio routes the microphone to Firefox locally and computes loudness without retaining audio samples. It records, stores, and sends neither audio nor recognized text.";
 let soundSinceStableCommit = true;
@@ -113,6 +123,7 @@ const elements = Object.fromEntries(Object.entries({
   voiceDebugSummary: "#voice-debug-summary", voiceDebugExport: "#voice-debug-export",
   voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
   voiceDebugBackground: "#voice-debug-background", voiceDebugBackgroundLabel: "#voice-debug-background-label",
+  voiceShortWordMethod: "#voice-short-word-method", voiceShortWordMethodLabel: "#voice-short-word-method-label",
   voiceDock: "#voice-dock", voiceDockStatus: "#voice-dock-status", voiceDockHeard: "#voice-dock-heard",
   voiceDockTarget: "#voice-dock-target", voiceDockStop: "#voice-dock-stop",
   sudokuGrid: "#sudoku-grid", sudokuFeedback: "#sudoku-feedback", sudokuCheck: "#sudoku-check",
@@ -717,6 +728,7 @@ function exportVoiceDiagnostics() {
       localDeveloperMode: localDeveloperMode(),
       retainBackgroundCapture: localDeveloperMode() && elements.voiceDebugBackground.checked,
       requestedCommandHints: commandPhraseHints(elements.voiceLanguage.value).length,
+      singleWordHelp: { ...shortWordHelpState },
     },
     privacy: {
       rawAudioRecorded: false,
@@ -1009,7 +1021,9 @@ function handleSpeechSessionEvent(event) {
     elements.voiceButton.textContent = "Stop voice input";
     elements.voiceButton.setAttribute("aria-pressed", "true");
     elements.voiceButton.setAttribute("aria-busy", "false");
-    if (!resumedAfterUtterance) setVoiceStatus("Listening locally. Speak a number or one of the supported commands.");
+    if (!resumedAfterUtterance) {
+      setVoiceStatus(`Listening locally. Speak a number or one of the supported commands. Single-word help is ${recognitionInput ? "on" : "off"}.`);
+    }
     const resumedQuickly = Number.isFinite(payload.timing?.captureGapMs);
     setVoiceSignal("listening", "Microphone active", resumedQuickly
       ? `Firefox resumed capture after a ${payload.timing.captureGapMs} ms recognition restart gap.`
@@ -1190,25 +1204,57 @@ function showVoiceDownload(show, language = elements.voiceLanguage.value) {
   }
 }
 
+// The availability check should answer within a few seconds. Firefox Nightly
+// can stop answering entirely when it has updated itself on disk while still
+// running: its speech service must start a new process from the new build.
+const SPEECH_CHECK_TIMEOUT_MS = 15_000;
+const SPEECH_CHECK_TIMEOUT = "speech-check-timeout";
+
+function withSpeechCheckTimeout(promise) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(SPEECH_CHECK_TIMEOUT)), SPEECH_CHECK_TIMEOUT_MS); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function stopUnansweredSpeechCheck() {
+  if (!voiceShouldRun) return;
+  elements.voiceAvailability.textContent = "Browser speech service not responding";
+  stopVoice("The browser’s on-device speech service did not answer within 15 seconds. If Firefox Nightly updated itself while it was open, restart Nightly and try again. Keyboard and touch still work.");
+}
+
 async function prepareVoice() {
   if (!supportsLocalSpeech()) return false;
   const language = elements.voiceLanguage.value;
 
   let status;
   try {
-    status = await RecognitionConstructor.available({
+    status = await withSpeechCheckTimeout(RecognitionConstructor.available({
       langs: [language],
       processLocally: true,
       quality: "command",
-    });
-  } catch (_) {
+    }));
+  } catch (error) {
+    if (error?.message === SPEECH_CHECK_TIMEOUT) {
+      stopUnansweredSpeechCheck();
+      return false;
+    }
     elements.voiceAvailability.textContent = "Private local speech unavailable";
     stopVoice("This browser could not confirm on-device recognition. Voice remains off to protect privacy.");
     return false;
   }
 
   if (status === "available") {
-    await speechSession.prepare();
+    try {
+      await withSpeechCheckTimeout(speechSession.prepare());
+    } catch (error) {
+      if (error?.message === SPEECH_CHECK_TIMEOUT) {
+        stopUnansweredSpeechCheck();
+        return false;
+      }
+      throw error;
+    }
     elements.voiceAvailability.textContent = "Private on-device speech ready";
     elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
     return true;
@@ -1273,17 +1319,32 @@ function shortWordHelpRequested() {
 // browser's own capture rather than blocking voice.
 async function openShortWordHelp() {
   closeShortWordHelp();
-  if (!shortWordHelpRequested()) return;
+  const requested = shortWordHelpRequested();
+  shortWordHelpState = {
+    requested,
+    active: false,
+    detail: requested ? "opening" : (elements.voiceShortWordHelp.checked ? "English only" : "not requested"),
+  };
+  if (!requested) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext !== "function") {
+    shortWordHelpState.detail = "Web Audio microphone access unavailable";
     setVoiceStatus("Single-word help needs Web Audio microphone access, which this browser does not provide. Continuing without it.");
     return;
   }
   try {
-    recognitionInput = await openRecognitionInput({ carrier: SPEECH_CARRIER });
+    const method = shortWordMethod();
+    recognitionInput = await openRecognitionInput({ carrier: method === "carrier" ? SPEECH_CARRIER : null });
+    shortWordHelpState = {
+      requested: true,
+      active: true,
+      method,
+      detail: method === "carrier" ? "page loudness endpointing with the built-in carrier" : "page loudness endpointing; finalize after silence",
+    };
     elements.voicePrivacy.textContent = VOICE_PRIVACY_PAGE_CAPTURE;
     addVoiceTrace({ kind: "lifecycle", action: "single-word help on · the page measures loudness and can add the built-in “okay” to the recognizer input; no audio is stored" });
   } catch (error) {
     recognitionInput = null;
+    shortWordHelpState = { requested: true, active: false, detail: `${error?.name ?? "Error"}: ${error?.message ?? error}` };
     setVoiceStatus(error?.name === "NotAllowedError"
       ? "Microphone permission was not granted for single-word help. Continuing with the browser’s own capture."
       : `Single-word help is unavailable (${error?.message ?? "unknown error"}). Continuing without it.`);
@@ -1436,6 +1497,7 @@ document.querySelector("#clear-all").addEventListener("click", () => {
 elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
 elements.voiceDockStop.addEventListener("click", () => stopVoice("Optional voice input stopped."));
 elements.voiceShortWordHelp.addEventListener("change", () => {
+  rememberSessionPreference(SHORT_WORD_HELP_KEY, elements.voiceShortWordHelp.checked);
   if (voiceActive || voiceStarting) setVoiceStatus("Single-word help changes take effect the next time voice starts.");
 });
 elements.voiceLanguage.addEventListener("change", () => {
@@ -1484,7 +1546,16 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
 elements.voiceDebugEnabled.checked = sessionPreference(VOICE_DEBUG_ENABLED_KEY, localDeveloperMode());
+// Opt-in on the published site; on by default on loopback developer hosts, so
+// real-voice tests exercise it. Remembered for the tab either way.
+elements.voiceShortWordHelp.checked = sessionPreference(SHORT_WORD_HELP_KEY, localDeveloperMode());
 elements.voiceDebugBackgroundLabel.hidden = !localDeveloperMode();
+elements.voiceShortWordMethodLabel.hidden = !localDeveloperMode();
+try { elements.voiceShortWordMethod.value = sessionStorage.getItem(SHORT_WORD_METHOD_KEY) || "finalize"; } catch (_) { /* Storage is optional. */ }
+elements.voiceShortWordMethod.addEventListener("change", () => {
+  try { sessionStorage.setItem(SHORT_WORD_METHOD_KEY, elements.voiceShortWordMethod.value); } catch (_) { /* Storage is optional. */ }
+  if (voiceActive || voiceStarting) setVoiceStatus("The release method changes the next time voice starts.");
+});
 elements.voiceDebugBackground.checked = localDeveloperMode()
   && sessionPreference(VOICE_DEBUG_BACKGROUND_KEY, false);
 elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;

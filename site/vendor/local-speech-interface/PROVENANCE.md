@@ -1,7 +1,7 @@
 # Local Speech Interface browser snapshot
 
 This directory vendors the browser-facing modules from Local Speech Interface
-0.5.0, revision `03abfda`.
+0.5.0, revision `ee6f13d`.
 
 - Source repository at integration time: sibling `local-speech-interface`
 - Covered files: `src/browser/{local-session,loudness-endpointer,recognition-input}.js`, `src/capabilities.js`,

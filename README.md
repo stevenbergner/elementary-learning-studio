@@ -16,7 +16,7 @@ Firefox Nightly currently has an important short-turn limitation: its English
 streaming model holds back an utterance's last word until the next word starts,
 so an isolated word such as “four” can produce no page-visible text until later
 speech. An experimental, opt-in **Help Firefox finish single words** option
-(English, off by default) lets the page detect the end of speech from loudness
+(English; off by default on the published site, on by default for local development) lets the page detect the end of speech from loudness
 alone and play a short built-in spoken “okay” into the recognizer, never the
 speakers, which can release the held-back word. In real-recognizer fixture
 tests it released nearly every held-back word when the word and the carrier

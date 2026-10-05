@@ -17,8 +17,10 @@ export const DEFAULT_LOUDNESS_ENDPOINTING = Object.freeze({
   tailMs: 300,
   initialFloorDb: -70,
   floorRiseDbPerSecond: 3,
-  calibrationMs: 200,
-  maxSpeechMs: 6000,
+  // Microphones and their gain control settle over the first fraction of a
+  // second; a real trace calibrated at -72 dB against a -51 dB room.
+  calibrationMs: 500,
+  maxSpeechMs: 4000,
 });
 
 export class LoudnessEndpointer {

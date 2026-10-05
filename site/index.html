@@ -198,7 +198,7 @@
                 </label>
                 <label class="voice-option" for="voice-short-word-help">
                   <input id="voice-short-word-help" type="checkbox">
-                  <span><strong>Help Firefox finish single words</strong><small>Experimental, English only, and off by default. Firefox can hold back a lone word such as “four” until you say something else. With this option the studio opens the microphone itself, measures only loudness on this device to notice when you stop, and then plays a short built-in “okay” into the recognizer (not your speakers) so the word is completed. The studio removes that “okay” from the text. Audio samples are not retained, recorded, stored, or sent.</small></span>
+                  <span><strong>Help Firefox finish single words</strong><small>Experimental and English only. Off by default on the published site; on by default when the studio runs on this computer for development. Firefox can hold back a lone word such as “four” until you say something else. With this option the studio opens the microphone itself, measures only loudness on this device to notice when you stop, and then plays a short built-in “okay” into the recognizer (not your speakers) so the word is completed. The studio removes that “okay” from the text. Audio samples are not retained, recorded, stored, or sent.</small></span>
                 </label>
                 <p class="voice-heard" id="voice-heard">Recognized words will appear here and in the persistent status strip while voice is on.</p>
                 <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. “Check” validates and stays on the question; “next question” or “next” validates and advances only when the answer is correct. The longer phrase can be easier for a speech engine to detect than one very short word. “Skip” is recognized but acts only when an activity declares what skipping means; this practice set currently leaves it unavailable. In the number grid, exact direction sequences such as “up, up, left” or “nach oben und links” move among blank cells. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Say “stop” to turn voice input off.</p>
@@ -215,6 +215,13 @@
                 <label class="voice-debug-toggle" id="voice-debug-background-label" for="voice-debug-background" hidden>
                   <input id="voice-debug-background" type="checkbox">
                   <span>Keep local voice active when this developer tab is in the background</span>
+                </label>
+                <label class="voice-debug-toggle" id="voice-short-word-method-label" for="voice-short-word-method" hidden>
+                  <span>Single-word release method</span>
+                  <select id="voice-short-word-method">
+                    <option value="finalize">Finalize after silence</option>
+                    <option value="carrier">Spoken carrier (“okay”)</option>
+                  </select>
                 </label>
                 <div class="voice-debug-output" id="voice-debug-output" hidden>
                   <p class="voice-debug-summary" id="voice-debug-summary">No utterances observed yet.</p>

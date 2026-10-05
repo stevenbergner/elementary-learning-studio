@@ -380,7 +380,13 @@ export class LocalSpeechSession extends EventTarget {
     // segment's last loud frame; an earlier one belongs to a previous turn.
     const lastLoudAt = monotonicNow() - (boundary.quietMs ?? 0);
     if (this.#lastFinalAt !== null && this.#lastFinalAt >= lastLoudAt) return;
-    if (this.#finishingUtterance || !this.#input?.carrierAvailable) return;
+    if (this.#finishingUtterance || !this.#input) return;
+    if (!this.#input.carrierAvailable) {
+      // Without a carrier, ask Firefox to finalize at the page-detected
+      // silence. A real-voice trace showed this release a held-back word.
+      this.#finishUtterance("page-silence");
+      return;
+    }
     const carrier = this.#input.injectCarrier();
     if (!carrier) return;
     this.#carrierInjectedAt = monotonicNow();
@@ -390,14 +396,17 @@ export class LocalSpeechSession extends EventTarget {
     // already detached the input.
     this.#carrierTokens = [...carrier.tokens];
     this.#clearCarrier();
-    // If the carrier draws out no text, the sound was not a decodable word.
-    // Stopping cannot recover it (finalize does not invent tokens) and would
-    // cost a restart gap, so only stop waiting for a release.
+    // If the carrier draws out no text, fall back to a graceful stop. With
+    // synthetic fixtures that only yielded nomatch, but a real-voice trace
+    // (2026-10-05) showed stop() releasing a held-back "next": finalize can
+    // drain a word the model decoded but withheld. The learner is silent here,
+    // so the restart gap costs nothing.
     this.#carrierTimer = setTimeout(() => {
       this.#carrierTimer = null;
       if (!this.#carrierPending) return;
       this.#carrierPending = false;
       this.#event("audio.state", { state: "carrier-no-text", boundarySource: "page-loudness" });
+      this.#finishUtterance("carrier-timeout");
     }, carrier.durationMs + this.#carrierResultTimeoutMs);
     this.#event("audio.state", {
       state: "carrier-injected",

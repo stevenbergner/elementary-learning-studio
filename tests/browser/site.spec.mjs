@@ -27,6 +27,16 @@ async function completeSet(page, { learner = "Timmy", operation = "addition", ma
 
 
 test.beforeEach(async ({ page }) => {
+  // Loopback hosts turn single-word help on by default. Most voice tests model
+  // the browser's own capture path, so they start from the published default;
+  // the single-word-help tests opt in explicitly.
+  await page.addInitScript(() => {
+    try {
+      if (sessionStorage.getItem("els-short-word-help") === null && !window.name.includes("keep-short-word-default")) {
+        sessionStorage.setItem("els-short-word-help", "false");
+      }
+    } catch (_) { /* Storage can be unavailable. */ }
+  });
   await page.goto("/");
 });
 
@@ -1177,6 +1187,7 @@ test.describe("opt-in single-word help", () => {
       }
       window.SpeechRecognition = FakeRecognition;
       window.webkitSpeechRecognition = undefined;
+      try { sessionStorage.setItem("els-short-word-method", "carrier"); } catch (_) { /* Storage is optional. */ }
       // A controllable "microphone": an oscillator whose loudness the test sets.
       Object.defineProperty(navigator, "mediaDevices", {
         configurable: true,
@@ -1241,5 +1252,55 @@ test.describe("opt-in single-word help", () => {
     await expect.poll(() => page.evaluate(() => window.__startArguments.at(-1))).toBe(null);
     await expect(page.locator("#voice-privacy")).toContainText("studio receives text");
     await expect(page.locator("#voice-trace")).toContainText("single-word help unavailable");
+    await page.locator("#voice-debug").evaluate((details) => { details.open = true; });
+    await page.locator("#voice-debug-enabled").check();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Save diagnostic JSON" }).click();
+    const exported = JSON.parse(await readFile(await (await download).path(), "utf8"));
+    expect(exported.environment.singleWordHelp).toMatchObject({ requested: true, active: false });
+    expect(exported.environment.singleWordHelp.detail).toContain("carrier audio is unavailable");
   });
+});
+
+
+test("reports a browser speech service that never answers instead of waiting forever", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    class SilentRecognition extends EventTarget {
+      // Firefox Nightly can stop answering after updating itself while open.
+      static available() { return new Promise(() => {}); }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+      }
+      start() {}
+      stop() {}
+      abort() {}
+    }
+    window.SpeechRecognition = SilentRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.locator("#voice-status")).toContainText("Preparing");
+  await page.clock.fastForward(16_000);
+  await expect(page.locator("#voice-status")).toContainText("did not answer within 15 seconds");
+  await expect(page.locator("#voice-availability")).toHaveText("Browser speech service not responding");
+  await expect(page.getByRole("button", { name: "Start optional voice" })).toBeEnabled();
+});
+
+
+test("single-word help defaults on for loopback development and is remembered for the tab", async ({ page }) => {
+  // Opt out of the suite-wide default before a fresh navigation.
+  await page.evaluate(() => {
+    sessionStorage.removeItem("els-short-word-help");
+    window.name = "keep-short-word-default";
+  });
+  await page.reload();
+  await expect(page.locator("#voice-short-word-help")).toBeChecked();
+  await page.locator(".voice-options summary").click();
+  await page.locator("#voice-short-word-help").uncheck();
+  await page.reload();
+  await expect(page.locator("#voice-short-word-help")).not.toBeChecked();
 });
