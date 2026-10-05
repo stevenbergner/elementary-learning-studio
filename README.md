@@ -12,6 +12,8 @@ The progress panel shows first-try accuracy, retries, hints, facts worth revisit
 
 An unobtrusive answer-mode panel offers strictly on-device, browser-provided speech recognition for English, French, German, and Vietnamese numbers and a closed set of safe commands. By default, speech fills the answer and waits for “check” or “done”; an explicit immediate-checking mode checks each spoken number and advances after a correct answer. The studio verifies the local-processing API and language pack before listening, shows language-pack setup progress, and **never falls back to an online speech service**. LSI's generated domain grammar exhaustively covers the declared integer range from 0–999, resolves ranked transcripts by canonical meaning, and rejects conflicts rather than guessing; it does not consult the correct answer. Recognition and current permission remain separate, so a number heard while the answer field is unavailable is reported as recognized but rejected—not misreported as unintelligible. Unsupported browsers stay visibly unavailable while keyboard and touch continue to work. Its observable events implement the sibling Local Speech Interface v0.1 contract, keeping recognition, intent, and accepted action distinct. See the public [Local voice and privacy brief](https://stevenbergner.github.io/elementary-learning-studio/voice-privacy.html), [Input methods and privacy](docs/INPUT_METHODS.md), and the technical [Local voice and AI research brief](docs/LOCAL_VOICE_AND_AI.md).
 
+A child-sized 4×4 Sudoku demonstrates scoped point-and-speak entry without turning speech into general page control. Mouse hover, touch, keyboard, and on-screen buttons all select or fill the same cells; voice accepts only 1–4 for the highlighted editable cell. Four reviewed grids each have exactly one solution. The separate [language-exercise authoring contract](docs/LANGUAGE_EXERCISE_AUTHORING.md) compiles prompt-specific accepted phrases and checks model-specific transcription receipts, providing a bounded path toward spoken French practice without an always-running language-model judge.
+
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
 ## Example printable pack
@@ -74,7 +76,7 @@ Assemble the same static artifact that GitHub Pages deploys:
 make site
 ```
 
-Browser quality checks run in GitHub Actions in Chromium and Firefox, including upright-phone, iPad, desktop, and school-laptop viewport sizes. They exercise keyboard answering, voice capability fallbacks, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
+Browser quality checks run in GitHub Actions in Chromium and Firefox, including upright-phone, iPad, desktop, and school-laptop viewport sizes. They exercise keyboard answering, point-and-speak Sudoku, voice capability fallbacks, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
 
 ```bash
 npm ci

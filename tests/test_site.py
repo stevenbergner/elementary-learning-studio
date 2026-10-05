@@ -34,7 +34,7 @@ class SiteTests(unittest.TestCase):
         cls.parser.feed(cls.html)
 
     def test_required_sections_are_present(self) -> None:
-        self.assertTrue({"main", "practice", "print", "approach", "privacy"}.issubset(self.parser.ids))
+        self.assertTrue({"main", "practice", "number-grid", "print", "approach", "privacy"}.issubset(self.parser.ids))
 
     def test_reviewed_pdf_is_linked(self) -> None:
         self.assertIn("pdfs/grade4_fluency-starter-pack.pdf", self.parser.links)

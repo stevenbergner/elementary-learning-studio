@@ -4,6 +4,7 @@ import {
   dispatchSpeechEvent,
 } from "./vendor/local-speech-interface/index.js";
 import { resolveVoiceIntent } from "./voice-intent.js";
+import { CHILD_SUDOKU_PUZZLES, checkSudokuValues } from "./sudoku.js";
 
 const SET_SIZE = 10;
 const STORAGE_KEY = "elementary-learning-studio-progress-v2";
@@ -63,6 +64,9 @@ let voiceAudioActive = false;
 let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
 let speechEventSequence = 0;
+let activeAnswerTarget = Object.freeze({ kind: "math" });
+let sudokuPuzzleIndex = 0;
+let sudokuValues = [];
 const VOICE_TRACE_LIMIT = 40;
 
 const elements = Object.fromEntries(Object.entries({
@@ -77,14 +81,133 @@ const elements = Object.fromEntries(Object.entries({
   voiceAutoCheck: "#voice-auto-check",
   voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
   voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
-  voiceSignalDetail: "#voice-signal-detail", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
+  voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
   voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
   voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
+  sudokuGrid: "#sudoku-grid", sudokuFeedback: "#sudoku-feedback", sudokuCheck: "#sudoku-check",
+  sudokuClear: "#sudoku-clear", sudokuNew: "#sudoku-new", sudokuLabel: "#sudoku-label",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function makeId() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function freshStore() { return { version: 2, profiles: [], sessions: [], lastProfileId: null, legacy: null }; }
+
+function sudokuCell(index) { return elements.sudokuGrid.querySelector(`[data-sudoku-index="${index}"]`); }
+
+function setActiveAnswerTarget(target) {
+  activeAnswerTarget = Object.freeze({ ...target });
+  elements.sudokuGrid.querySelectorAll(".sudoku-cell").forEach((cell) => {
+    const selected = target.kind === "sudoku" && Number(cell.dataset.sudokuIndex) === target.index;
+    cell.classList.toggle("is-selected", selected);
+    if (selected) cell.setAttribute("aria-current", "true");
+    else cell.removeAttribute("aria-current");
+  });
+  elements.voiceTarget.textContent = target.kind === "sudoku"
+    ? `Current speech target: number grid, row ${Math.floor(target.index / 4) + 1}, column ${(target.index % 4) + 1}.`
+    : "Current speech target: arithmetic answer.";
+}
+
+function activateSudokuCell(index, { focus = false } = {}) {
+  const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
+  if (puzzle.puzzle[index]) {
+    elements.sudokuFeedback.className = "sudoku-feedback";
+    elements.sudokuFeedback.textContent = "That number is a fixed clue. Choose a blank cell.";
+    return false;
+  }
+  setActiveAnswerTarget({ kind: "sudoku", index });
+  if (focus) sudokuCell(index)?.focus({ preventScroll: true });
+  elements.sudokuFeedback.className = "sudoku-feedback";
+  elements.sudokuFeedback.textContent = `Row ${Math.floor(index / 4) + 1}, column ${(index % 4) + 1} is ready.`;
+  return true;
+}
+
+function enterSudokuValue(value, source = "keyboard or touch") {
+  let index = activeAnswerTarget.kind === "sudoku" ? activeAnswerTarget.index : -1;
+  const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
+  if (index < 0 || puzzle.puzzle[index]) {
+    index = puzzle.puzzle.findIndex((given, candidate) => !given && !sudokuValues[candidate]);
+    if (index < 0) index = puzzle.puzzle.findIndex((given) => !given);
+    if (index < 0) return false;
+    activateSudokuCell(index);
+  }
+  sudokuValues[index] = value;
+  const cell = sudokuCell(index);
+  cell.textContent = value ? String(value) : "";
+  cell.classList.remove("is-wrong", "is-correct");
+  cell.setAttribute("aria-label", `Row ${Math.floor(index / 4) + 1}, column ${(index % 4) + 1}${value ? `, ${value}` : ", blank"}`);
+  elements.sudokuFeedback.className = "sudoku-feedback";
+  elements.sudokuFeedback.textContent = value
+    ? `${value} entered by ${source}. Keep thinking, or check the grid when ready.`
+    : "The selected cell is blank again.";
+  return true;
+}
+
+function checkSudoku() {
+  const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
+  const result = checkSudokuValues(sudokuValues, puzzle.solution);
+  elements.sudokuGrid.querySelectorAll(".sudoku-cell").forEach((cell) => {
+    const index = Number(cell.dataset.sudokuIndex);
+    cell.classList.toggle("is-wrong", result.wrong.includes(index));
+    cell.classList.toggle("is-correct", result.correct && !puzzle.puzzle[index]);
+  });
+  if (result.correct) {
+    elements.sudokuFeedback.className = "sudoku-feedback success";
+    elements.sudokuFeedback.textContent = "The whole grid works. Every row, column, and box has 1–4.";
+  } else if (result.wrong.length) {
+    elements.sudokuFeedback.className = "sudoku-feedback error";
+    elements.sudokuFeedback.textContent = "Some entries need another look. The cells to revisit are highlighted.";
+  } else {
+    elements.sudokuFeedback.className = "sudoku-feedback";
+    elements.sudokuFeedback.textContent = `${result.empty.length} blank ${result.empty.length === 1 ? "cell remains" : "cells remain"}.`;
+  }
+  return result;
+}
+
+function moveSudokuFocus(index, key) {
+  const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4 };
+  if (!(key in offsets)) return false;
+  const row = Math.floor(index / 4);
+  const column = index % 4;
+  const target = index + offsets[key];
+  if (target < 0 || target >= 16) return true;
+  if ((key === "ArrowLeft" || key === "ArrowRight") && Math.floor(target / 4) !== row) return true;
+  if ((key === "ArrowUp" || key === "ArrowDown") && target % 4 !== column) return true;
+  sudokuCell(target)?.focus({ preventScroll: true });
+  return true;
+}
+
+function renderSudoku(index = sudokuPuzzleIndex) {
+  sudokuPuzzleIndex = (index + CHILD_SUDOKU_PUZZLES.length) % CHILD_SUDOKU_PUZZLES.length;
+  const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
+  sudokuValues = [...puzzle.puzzle];
+  const cells = puzzle.puzzle.map((given, cellIndex) => {
+    const row = Math.floor(cellIndex / 4);
+    const column = cellIndex % 4;
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = `sudoku-cell${given ? " is-given" : ""}`;
+    cell.dataset.sudokuIndex = String(cellIndex);
+    cell.dataset.row = String(row);
+    cell.dataset.column = String(column);
+    cell.setAttribute("role", "gridcell");
+    cell.setAttribute("aria-readonly", String(Boolean(given)));
+    cell.setAttribute("aria-label", `Row ${row + 1}, column ${column + 1}${given ? `, fixed ${given}` : ", blank"}`);
+    cell.textContent = given ? String(given) : "";
+    cell.addEventListener("focus", () => { if (!given) activateSudokuCell(cellIndex); });
+    cell.addEventListener("click", () => activateSudokuCell(cellIndex));
+    cell.addEventListener("pointerenter", (event) => { if (!given && event.pointerType === "mouse") activateSudokuCell(cellIndex); });
+    cell.addEventListener("keydown", (event) => {
+      if (moveSudokuFocus(cellIndex, event.key)) return event.preventDefault();
+      if (!given && /^[1-4]$/.test(event.key)) { event.preventDefault(); enterSudokuValue(Number(event.key)); }
+      if (!given && ["Backspace", "Delete", "0"].includes(event.key)) { event.preventDefault(); enterSudokuValue(0); }
+    });
+    return cell;
+  });
+  elements.sudokuGrid.replaceChildren(...cells);
+  elements.sudokuLabel.textContent = `Easy grid ${sudokuPuzzleIndex + 1} of ${CHILD_SUDOKU_PUZZLES.length}`;
+  elements.sudokuFeedback.className = "sudoku-feedback";
+  elements.sudokuFeedback.textContent = "Select a blank cell to begin.";
+}
 
 function readStore() {
   try {
@@ -173,6 +296,7 @@ function startSet(kind = operation) {
 
 function renderQuestion() {
   clearTimeout(voiceAdvanceTimer);
+  setActiveAnswerTarget({ kind: "math" });
   const question = currentQuestion();
   const focusOwner = document.activeElement;
   elements.a.textContent = question.a;
@@ -480,13 +604,14 @@ function scheduleVoiceAdvance() {
 }
 
 function handleVoice(transcript, alternatives = []) {
+  const targetingSudoku = activeAnswerTarget.kind === "sudoku";
   const interpretation = resolveVoiceIntent(
     { transcript, alternatives },
     {
-      answerEnabled: !elements.answer.disabled,
-      readyForNext,
+      answerEnabled: targetingSudoku || !elements.answer.disabled,
+      readyForNext: !targetingSudoku && readyForNext,
       locale: elements.voiceLanguage.value,
-      autoCheck: elements.voiceAutoCheck.checked,
+      autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
     },
   );
   emitSpeechInterfaceEvent("intent.proposed", { interpretation });
@@ -512,6 +637,14 @@ function handleVoice(transcript, alternatives = []) {
     return stopVoice("Voice input stopped by spoken command.");
   }
   if (interpretation.action === "check the current answer") {
+    if (targetingSudoku) {
+      const result = checkSudoku();
+      elements.voiceStatus.textContent = result.correct
+        ? "Voice command: the number grid is complete and correct."
+        : "Voice command: the number grid was checked; keep thinking.";
+      emitSpeechInterfaceEvent("action.accepted", { action: "check the number grid", correct: result.correct });
+      return interpretation;
+    }
     elements.voiceStatus.textContent = "Voice command: check the current answer.";
     checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
@@ -525,6 +658,25 @@ function handleVoice(transcript, alternatives = []) {
     return interpretation;
   }
   if (interpretation.kind === "number") {
+    if (targetingSudoku) {
+      if (interpretation.value < 1 || interpretation.value > 4) {
+        emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "outside-active-domain", allowedValues: [1, 2, 3, 4] });
+        elements.voiceStatus.textContent = "That number was recognized, but this grid accepts only 1, 2, 3, or 4.";
+        elements.sudokuFeedback.className = "sudoku-feedback error";
+        elements.sudokuFeedback.textContent = "This small grid uses only the numbers 1–4.";
+        return { ...interpretation, permitted: false, permission: "outside-active-domain" };
+      }
+      enterSudokuValue(interpretation.value, "voice");
+      emitSpeechInterfaceEvent("action.accepted", {
+        action: `enter ${interpretation.value} in number-grid cell`,
+        value: interpretation.value,
+        row: Math.floor(activeAnswerTarget.index / 4) + 1,
+        column: (activeAnswerTarget.index % 4) + 1,
+        checked: false,
+      });
+      elements.voiceStatus.textContent = `${interpretation.value} entered in the highlighted number-grid cell.`;
+      return interpretation;
+    }
     elements.answer.value = String(interpretation.value);
     elements.answer.focus();
     if (!interpretation.checkImmediately) {
@@ -795,6 +947,7 @@ function stopVoice(message = "Voice input is off.") {
 }
 
 elements.form.addEventListener("submit", (event) => { event.preventDefault(); checkAnswer(); });
+elements.answer.addEventListener("focus", () => setActiveAnswerTarget({ kind: "math" }));
 elements.hintButton.addEventListener("click", () => {
   const question = currentQuestion(); elements.hint.textContent = operations[operation].hint(question.a, question.b); question.hintUsed = true; elements.answer.focus();
 });
@@ -847,9 +1000,23 @@ elements.voiceDebugClear.addEventListener("click", () => {
   elements.voiceTrace.replaceChildren();
   elements.voiceDebugState.textContent = "No recognition events yet.";
 });
+document.querySelectorAll("[data-sudoku-value]").forEach((button) => button.addEventListener("click", () => {
+  enterSudokuValue(Number(button.dataset.sudokuValue), "touch control");
+}));
+elements.sudokuCheck.addEventListener("click", checkSudoku);
+elements.sudokuClear.addEventListener("click", () => {
+  const selected = activeAnswerTarget.kind === "sudoku" ? activeAnswerTarget.index : null;
+  renderSudoku(sudokuPuzzleIndex);
+  if (selected !== null && !CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex].puzzle[selected]) activateSudokuCell(selected, { focus: true });
+});
+elements.sudokuNew.addEventListener("click", () => {
+  renderSudoku(sudokuPuzzleIndex + 1);
+  const firstBlank = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex].puzzle.findIndex((value) => !value);
+  activateSudokuCell(firstBlank, { focus: true });
+});
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice input stopped when the page was hidden."); });
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
-renderLearnerChoices(); renderHistory(); setupVoice(); startSet();
+renderLearnerChoices(); renderHistory(); renderSudoku(); setupVoice(); startSet();

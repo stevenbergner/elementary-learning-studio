@@ -66,6 +66,36 @@ test("supports a complete keyboard answer flow", async ({ page }) => {
 });
 
 
+test("supports a uniquely solvable child Sudoku by mouse, touch, and keyboard", async ({ page }) => {
+  await page.locator("#number-grid").scrollIntoViewIfNeeded();
+  const cells = page.locator(".sudoku-cell");
+  await expect(cells).toHaveCount(16);
+  await expect(page.locator(".sudoku-cell.is-given")).toHaveCount(9);
+
+  const editable = page.locator(".sudoku-cell:not(.is-given)").first();
+  await editable.hover();
+  await expect(editable).toHaveClass(/is-selected/);
+  await expect(page.locator("#voice-target")).toContainText("number grid");
+  await page.locator('[data-sudoku-value="2"]').click();
+  await expect(editable).toHaveText("2");
+  await editable.press("Backspace");
+  await expect(editable).toHaveText("");
+
+  const solution = await page.evaluate(async () => {
+    const { CHILD_SUDOKU_PUZZLES } = await import("./sudoku.js");
+    return [...CHILD_SUDOKU_PUZZLES[0].solution];
+  });
+  for (const cell of await page.locator(".sudoku-cell:not(.is-given)").all()) {
+    const index = Number(await cell.getAttribute("data-sudoku-index"));
+    await cell.click();
+    await cell.press(String(solution[index]));
+  }
+  await page.getByRole("button", { name: "Check the grid" }).click();
+  await expect(page.locator("#sudoku-feedback")).toContainText("whole grid works");
+  await expect(page.locator(".sudoku-cell.is-wrong")).toHaveCount(0);
+});
+
+
 test("does not steal focus while a learner name is being entered", async ({ page }) => {
   const learnerName = page.locator("#learner-name");
   await learnerName.focus();
@@ -283,6 +313,17 @@ test("shows local language-pack progress and starts only after the browser confi
   await expect(page.locator("#voice-status")).toContainText("Say “check” or “done”");
   await expect(page.locator("#voice-trace")).toContainText("studio action: enter 42");
   await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
+
+  const gridCell = page.locator(".sudoku-cell:not(.is-given)").first();
+  await gridCell.hover();
+  await expect(page.locator("#voice-target")).toContainText("number grid");
+  await page.evaluate(() => window.__voiceRecognition.emitResult([["three", 0.96]], true));
+  await expect(gridCell).toHaveText("3");
+  await expect(page.locator("#voice-status")).toContainText("entered in the highlighted number-grid cell");
+  await page.evaluate(() => window.__voiceRecognition.emitResult([["nine", 0.96]], true));
+  await expect(gridCell).toHaveText("3");
+  await expect(page.locator("#voice-status")).toContainText("accepts only 1, 2, 3, or 4");
+
   const speechEvents = await page.evaluate(() => window.__speechEvents);
   expect(speechEvents.some((event) => event.type === "recognition.interim")).toBeTruthy();
   const finalRecognition = speechEvents.find((event) => event.type === "recognition.final" && event.payload.transcript === "forty two");
@@ -294,6 +335,7 @@ test("shows local language-pack progress and starts only after the browser confi
     capabilities: { transcript: true, alternatives: true, wordTiming: false },
   });
   expect(speechEvents.some((event) => event.type === "intent.proposed" && event.payload.interpretation.value === 42)).toBeTruthy();
+  expect(speechEvents.some((event) => event.type === "action.rejected" && event.payload.reason === "outside-active-domain")).toBeTruthy();
   expect(speechEvents.every((event) => event.protocol === "local-speech-interface/v0.1")).toBeTruthy();
   expect(speechEvents.every((event) => event.privacy.networkUsed === false)).toBeTruthy();
 

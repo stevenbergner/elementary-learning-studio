@@ -1,0 +1,65 @@
+{
+  "schema": "elementary-learning-studio/exercise-sheet/v0.1",
+  "id": "fr-conversation-starter",
+  "locale": "fr-FR",
+  "title": "Premiers échanges",
+  "prompts": [
+    {
+      "id": "greeting",
+      "cue": "Tu rencontres quelqu’un le matin. Que dis-tu ?",
+      "answers": [
+        { "id": "bonjour", "canonical": "Bonjour", "surfaces": ["bonjour"] }
+      ],
+      "receipts": [
+        { "source": "synthetic", "voice": "Thomas", "transcript": "Bonjour.", "answerId": "bonjour" },
+        { "source": "synthetic", "voice": "Jacques", "transcript": "Bonjour.", "answerId": "bonjour" }
+      ]
+    },
+    {
+      "id": "thanks",
+      "cue": "Quelqu’un t’aide. Que peux-tu dire ?",
+      "answers": [
+        { "id": "thanks", "canonical": "Merci", "surfaces": ["merci", "merci beaucoup"] }
+      ],
+      "receipts": [
+        { "source": "synthetic", "voice": "Thomas", "transcript": "Merci beaucoup.", "answerId": "thanks" },
+        { "source": "synthetic", "voice": "Jacques", "transcript": "Merci beaucoup.", "answerId": "thanks" }
+      ]
+    },
+    {
+      "id": "wellbeing",
+      "cue": "Comment ça va ?",
+      "answers": [
+        { "id": "well", "canonical": "Ça va bien", "surfaces": ["ça va bien", "je vais bien", "très bien"] }
+      ],
+      "receipts": [
+        { "source": "synthetic", "voice": "Thomas", "transcript": "Ça va bien.", "answerId": "well" },
+        { "source": "synthetic", "voice": "Jacques", "transcript": "Ça va bien.", "answerId": "well" }
+      ]
+    },
+    {
+      "id": "farewell",
+      "cue": "Tu pars. Que peux-tu dire ?",
+      "answers": [
+        { "id": "farewell", "canonical": "Au revoir", "surfaces": ["au revoir", "à bientôt"] }
+      ],
+      "receipts": [
+        { "source": "synthetic", "voice": "Thomas", "transcript": "Au revoir.", "answerId": "farewell" },
+        { "source": "synthetic", "voice": "Jacques", "transcript": "Au revoir.", "answerId": "farewell" }
+      ]
+    }
+  ],
+  "evidence": {
+    "checked": "2026-10-04",
+    "engine": "parakeet.cpp v0.5.0",
+    "checkpoint": "nvidia/parakeet-tdt-0.6b-v3",
+    "quantization": "q4_k",
+    "modelSha256": "993d73feb4206dadda865ab25bd64b50c48dc4d013c3bf6126a721f28b1d5ee8",
+    "limits": "Synthetic macOS voices are reproducible smoke evidence, not evidence for children, accents, microphones, rooms, or Firefox's different browser-managed checkpoint.",
+    "excludedCandidates": [
+      { "surface": "salut", "observation": "Jacques was transcribed as Salute." },
+      { "surface": "oui", "observation": "Jacques was transcribed as Way." },
+      { "surface": "non", "observation": "Both voices were transcribed as No." }
+    ]
+  }
+}
