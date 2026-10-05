@@ -18,12 +18,16 @@ so an isolated word such as “four” can produce no page-visible text until la
 speech. An experimental, opt-in **Help Firefox finish single words** option
 (English, off by default) lets the page detect the end of speech from loudness
 alone and play a short built-in spoken “okay” into the recognizer, never the
-speakers, which releases the held-back word. In real-recognizer fixture tests
-this turned most missed single words into prompt results. It still needs
-testing with real children's voices, and its carrier sound is generated locally
-for now. Voice therefore remains experimental and secondary to touch and
-keyboard. The mechanism, measurements, and upstream boundary are documented in
-[Firefox Nightly short-utterance finding](docs/FIREFOX_SHORT_UTTERANCE_FINDING.md).
+speakers, which can release the held-back word. In real-recognizer fixture
+tests it released nearly every held-back word when the word and the carrier
+came from the same synthetic voice, but with words from other voices the
+benefit was small or absent. Whether it helps a real speaker is still untested.
+The carrier is an openly licensed TTS clip (Piper with the
+public-domain-trained LJ Speech voice); see
+[its provenance](site/audio/speech-carrier-en.md). Voice therefore remains
+experimental and secondary to touch and keyboard. The mechanism, measurements,
+and upstream boundary are documented in [Firefox Nightly short-utterance
+finding](docs/FIREFOX_SHORT_UTTERANCE_FINDING.md).
 
 A child-sized 4×4 Sudoku demonstrates scoped point-and-speak entry without turning speech into general page control. Mouse hover, touch, keyboard, and on-screen buttons all select or fill the same cells; voice accepts only 1–4 for the highlighted editable cell. Four reviewed grids each have exactly one solution. The separate [language-exercise authoring contract](docs/LANGUAGE_EXERCISE_AUTHORING.md) compiles prompt-specific accepted phrases and checks model-specific transcription receipts, providing a bounded path toward spoken French practice without an always-running language-model judge.
 

@@ -11,6 +11,3 @@ __pycache__/
 *.log
 *.out
 *.synctex.gz
-
-# Locally generated speech carrier; see scripts/generate_speech_carrier.sh
-site/audio/speech-carrier-en.wav

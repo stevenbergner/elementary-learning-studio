@@ -128,6 +128,23 @@ Setup:
 With the carrier, the median time from the end of a word to its final text was
 about 0.8 s (p90 about 1.0 s).
 
+**Correction (same day): these results are biased by speaker.** Every row above
+used the same macOS voice for the word and the carrier. In real use the
+learner's voice always differs from the carrier's. The test was repeated with
+lone words (four, two, ten, next, check) spoken by three other local macOS
+voices, under the same noise bed:
+
+| Carrier | Word released before any stop | Word recognized at all |
+| --- | --- | --- |
+| None | 5/15 | 7/15 |
+| Piper “okay” (the published carrier) | 4/15 | 4/15 |
+| Same macOS voice's “okay” (not redistributable) | 8/15 | 8/15 |
+
+Across speakers the carrier's benefit is small or absent. Most failures were
+words the model did not recognize from those voices at all, which no carrier
+can fix. Synthetic voices are a weak stand-in for a learner, so the option stays
+experimental until it is tested with real speakers.
+
 The remaining failures are at the edge of the recognizer:
 - In one traced three-word failure, the model never decoded the middle word.
 - With a 0.35-second gap, the next word can start while the carrier is still
@@ -150,9 +167,11 @@ The remaining failures are at the edge of the recognizer:
 ### Still open
 
 - Testing with real children's voices and microphones.
-- Which carrier recording may ship with the public site. It is generated
-  locally by `scripts/generate_speech_carrier.sh` and is not committed; without
-  it the option reports itself unavailable.
+- Resolved later the same day: the published carrier is an openly licensed
+  Piper TTS clip (MIT voice trained on public-domain LJ Speech), generated
+  reproducibly by `scripts/generate_speech_carrier.py` with a
+  [provenance record](../site/audio/speech-carrier-en.md). The first lab runs
+  used a macOS system voice, whose license forbids publishing it.
 - Upstream: release the trailing word after a blank run for `<EOU>` models too,
   feed already-captured audio before finalizing on `stop()`, wire the bundled
   voice-activity detector to `speechstart`/`speechend`, and use or refuse

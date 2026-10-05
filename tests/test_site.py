@@ -72,6 +72,22 @@ class SiteTests(unittest.TestCase):
         self.assertIn("0.5.0", provenance)
         self.assertIn("03abfda", provenance)
 
+    def test_speech_carrier_is_openly_licensed_and_matches_its_provenance(self) -> None:
+        import hashlib
+        import wave
+
+        carrier = SITE_ROOT / "audio" / "speech-carrier-en.wav"
+        provenance = (SITE_ROOT / "audio" / "speech-carrier-en.md").read_text(encoding="utf-8")
+        with wave.open(str(carrier), "rb") as audio:
+            self.assertEqual((audio.getnchannels(), audio.getsampwidth()), (1, 2))
+            self.assertLess(audio.getnframes() / audio.getframerate(), 1.0)
+        digest = hashlib.sha256(carrier.read_bytes()).hexdigest()
+        self.assertIn(f"Output sha256: `{digest}`", provenance)
+        for required in ("piper-tts", "(MIT)", "LJ Speech", "public-domain", "CC BY 4.0"):
+            self.assertIn(required, provenance)
+        sw = (SITE_ROOT / "sw.js").read_text(encoding="utf-8")
+        self.assertIn('"audio/speech-carrier-en.wav"', sw)
+
 
 if __name__ == "__main__":
     unittest.main()

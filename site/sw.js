@@ -7,7 +7,7 @@ function previewScope(pathname) {
 
 // Branch and commit previews share this origin with the published studio, so
 // each keeps its own cache and may only clean up caches that belong to it.
-const VERSION = "v26";
+const VERSION = "v27";
 const SCOPE = previewScope(new URL(self.registration.scope).pathname);
 const CACHE_PREFIX = SCOPE ? `elementary-learning-studio:${SCOPE}:` : "elementary-learning-studio-";
 const CACHE = `${CACHE_PREFIX}${VERSION}`;
@@ -27,6 +27,7 @@ const CORE = [
   "vendor/local-speech-interface/stable-interim.js",
   "vendor/local-speech-interface/loudness-endpointer.js",
   "vendor/local-speech-interface/recognition-input.js",
+  "audio/speech-carrier-en.wav",
   "vendor/local-speech-interface/dom-bridge.js",
 ];
 
