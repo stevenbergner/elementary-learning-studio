@@ -175,7 +175,7 @@ export class LocalSpeechSession extends EventTarget {
   }
 
   #ensureResultUtterance() {
-    if (this.#utteranceCycle === this.#recognitionCycle) return;
+    if (this.#utteranceCycle === this.#recognitionCycle && this.#utteranceOpen) return;
     this.#beginUtterance("result");
   }
 
@@ -316,6 +316,10 @@ export class LocalSpeechSession extends EventTarget {
         // recognizer open so a rapid follow-up command is not spoken into a
         // stop/restart gap. The stop path remains for a retained interim tail.
         this.#utteranceFinalized = true;
+        // Firefox can commit several conversational turns without emitting a
+        // new soundstart boundary. Treat the next result as a new logical
+        // utterance so diagnostics and consumer state do not merge attempts.
+        this.#utteranceOpen = false;
         this.#clearFlushTimer();
       } else {
         this.#scheduleFlush(selectedFlushMs, "adaptive-quiet-deadline");

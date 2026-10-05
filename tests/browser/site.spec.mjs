@@ -584,6 +584,70 @@ test("stops hidden-page capture while draining the word already heard", async ({
 });
 
 
+test("keeps local developer tracing across reloads and can explicitly retain background capture", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        this.phrases = [];
+        window.__voiceRecognition = this;
+        window.__developerStops = 0;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        window.__developerStops += 1;
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {
+        window.__developerStops += 1;
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+    }
+    class FakePhrase {
+      constructor(phrase, boost) { this.phrase = phrase; this.boost = boost; }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.SpeechRecognitionPhrase = FakePhrase;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+
+  await expect(page.locator("#voice-debug-enabled")).toBeChecked();
+  await page.locator("#voice-debug").evaluate((details) => { details.open = true; });
+  await expect(page.locator("#voice-debug-background-label")).toBeVisible();
+  await page.locator("#voice-debug-background").check();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  const phrases = await page.evaluate(() => window.__voiceRecognition.phrases.map(({ phrase, boost }) => ({ phrase, boost })));
+  expect(phrases).toContainEqual({ phrase: "next", boost: 10 });
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => page.evaluate(() => window.__developerStops)).toBe(0);
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  const retained = await page.evaluate(() => window.__speechEvents?.findLast?.(
+    (event) => event.payload?.state === "background-capture-retained",
+  ));
+  expect(retained.payload.reason).toBe("explicit-local-developer-preference");
+  await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
+
+  await page.reload();
+  await expect(page.locator("#voice-debug-enabled")).toBeChecked();
+  await expect(page.locator("#voice-debug-background")).toBeChecked();
+});
+
+
 test("accepts a trailing spoken answer and lets next validate before advancing", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {
@@ -640,7 +704,7 @@ test("accepts a trailing spoken answer and lets next validate before advancing",
   await page.evaluate(() => window.__voiceRecognition.emitFinal("check"));
   await expect(page.locator("#progress-label")).toHaveText("1 of 10");
   await expect(page.locator("#feedback")).toHaveClass(/success/);
-  await expect(page.locator("#voice-status")).toContainText("Say “next”");
+  await expect(page.locator("#voice-status")).toContainText("Say “next question”");
 
   await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
   await expect(page.locator("#progress-label")).toHaveText("2 of 10", { timeout: 2_000 });

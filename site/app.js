@@ -3,7 +3,11 @@ import {
   createSpeechEvent,
   dispatchSpeechEvent,
 } from "./vendor/local-speech-interface/index.js";
-import { commandAwareInterimFlushDelay, resolveVoiceIntent } from "./voice-intent.js";
+import {
+  commandAwareInterimFlushDelay,
+  commandPhraseHints,
+  resolveVoiceIntent,
+} from "./voice-intent.js";
 import { CHILD_SUDOKU_PUZZLES, checkSudokuValues } from "./sudoku.js";
 
 const SET_SIZE = 10;
@@ -11,6 +15,9 @@ const STORAGE_KEY = "elementary-learning-studio-progress-v2";
 const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
 const VOICE_ADVANCE_DELAY_MS = 450;
+const VOICE_DEBUG_ENABLED_KEY = "els-voice-debug-enabled";
+const VOICE_DEBUG_BACKGROUND_KEY = "els-voice-debug-background";
+const LOCAL_DEVELOPER_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 const operations = {
   addition: {
@@ -88,6 +95,7 @@ const elements = Object.fromEntries(Object.entries({
   voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
   voiceDebugSummary: "#voice-debug-summary", voiceDebugExport: "#voice-debug-export",
   voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
+  voiceDebugBackground: "#voice-debug-background", voiceDebugBackgroundLabel: "#voice-debug-background-label",
   voiceDock: "#voice-dock", voiceDockStatus: "#voice-dock-status", voiceDockHeard: "#voice-dock-heard",
   voiceDockTarget: "#voice-dock-target", voiceDockStop: "#voice-dock-stop",
   sudokuGrid: "#sudoku-grid", sudokuFeedback: "#sudoku-feedback", sudokuCheck: "#sudoku-check",
@@ -97,6 +105,18 @@ const elements = Object.fromEntries(Object.entries({
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function makeId() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function freshStore() { return { version: 2, profiles: [], sessions: [], lastProfileId: null, legacy: null }; }
+function localDeveloperMode() { return LOCAL_DEVELOPER_HOSTS.has(location.hostname); }
+function sessionPreference(key, fallback = false) {
+  try {
+    const stored = sessionStorage.getItem(key);
+    return stored === null ? fallback : stored === "true";
+  } catch (_) {
+    return fallback;
+  }
+}
+function rememberSessionPreference(key, value) {
+  try { sessionStorage.setItem(key, String(Boolean(value))); } catch (_) { /* A private tab may deny storage. */ }
+}
 
 function sudokuCell(index) { return elements.sudokuGrid.querySelector(`[data-sudoku-index="${index}"]`); }
 
@@ -607,8 +627,15 @@ function summarizeVoiceDiagnostics() {
       const utterance = utterances.get(key);
       if (["sound-started", "speech-started"].includes(event.payload.state)) utterance.started = true;
       if (["sound-ended", "speech-ended"].includes(event.payload.state)) utterance.ended = true;
-      if (event.type === "recognition.interim") utterance.interims += 1;
-      if (event.type === "recognition.final") utterance.finals += 1;
+      if (event.type === "recognition.interim") {
+        utterance.started = true;
+        utterance.interims += 1;
+      }
+      if (event.type === "recognition.final") {
+        utterance.started = true;
+        utterance.ended = true;
+        utterance.finals += 1;
+      }
     }
     if (event.payload?.state === "finalizing") decoderFlushes += 1;
     if (event.payload?.state === "recognition-ended" && event.payload.willRestart) recognitionRestarts += 1;
@@ -667,6 +694,9 @@ function exportVoiceDiagnostics() {
       userAgent: navigator.userAgent,
       language: navigator.language,
       recognitionLanguage: elements.voiceLanguage.value,
+      localDeveloperMode: localDeveloperMode(),
+      retainBackgroundCapture: localDeveloperMode() && elements.voiceDebugBackground.checked,
+      requestedCommandHints: commandPhraseHints(elements.voiceLanguage.value).length,
     },
     privacy: {
       rawAudioRecorded: false,
@@ -707,7 +737,12 @@ function formatVoiceTiming(timing = {}) {
   const parts = [];
   if (Number.isFinite(timing.sinceSpeechStartMs)) parts.push(`result ${timing.sinceSpeechStartMs} ms after speech began`);
   if (Number.isFinite(timing.sinceSpeechEndMs)) parts.push(`result ${timing.sinceSpeechEndMs} ms after speech ended`);
-  if (Number.isFinite(timing.adaptiveFlushMs)) parts.push(`quiet fallback ${timing.adaptiveFlushMs} ms`);
+  if (Number.isFinite(timing.adaptiveFlushMs)) {
+    const baseline = timing.baselineAdaptiveFlushMs;
+    parts.push(Number.isFinite(baseline) && baseline !== timing.adaptiveFlushMs
+      ? `quiet fallback ${timing.adaptiveFlushMs} ms (baseline ${baseline} ms)`
+      : `quiet fallback ${timing.adaptiveFlushMs} ms`);
+  }
   if (Number.isFinite(timing.intentParseMs)) parts.push(`intent match ${timing.intentParseMs.toFixed(1)} ms`);
   if (Number.isFinite(timing.captureGapMs)) parts.push(`recognizer restart gap ${timing.captureGapMs} ms`);
   if (Number.isFinite(timing.startDelayMs)) parts.push(`capture start ${timing.startDelayMs} ms`);
@@ -853,7 +888,7 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}, reco
     if (!readyForNext) checkAnswer();
     emitDecision("action.accepted", { action: interpretation.action, correct: readyForNext });
     setVoiceStatus(readyForNext
-      ? "Correct. Say “next” when you want the next question."
+      ? "Correct. Say “next question” or “next” when you want to continue."
       : "I checked the entered answer. Keep thinking and try again.");
     return interpretation;
   }
@@ -965,9 +1000,15 @@ function handleSpeechSessionEvent(event) {
     } else if (payload.state === "no-match") {
       setVoiceStatus("Firefox heard a sound but returned no words. Try the answer in a short phrase, or use keyboard or touch.");
     }
+    const phraseHints = payload.state === "recognition-started"
+      ? payload.recognizer?.contextualBiasing
+      : null;
+    const phraseEvidence = phraseHints?.requestedPhrases
+      ? ` · ${phraseHints.requestedPhrases} command hints ${phraseHints.applied ? "applied" : "requested but unsupported"}`
+      : "";
     addVoiceTrace({
       kind: "lifecycle",
-      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}`,
+      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}${phraseEvidence}`,
       timing: payload.timing,
     });
     return;
@@ -1013,6 +1054,7 @@ function createSpeechSession() {
     speechSession = new LocalSpeechSession({
       locale: elements.voiceLanguage.value,
       Recognition: RecognitionConstructor,
+      phrases: commandPhraseHints(elements.voiceLanguage.value),
       interimFlushDelay: (evidence) => commandAwareInterimFlushDelay(evidence, voiceIntentContext()),
     });
     speechSession.addEventListener("speech", ({ detail }) => handleSpeechSessionEvent(detail));
@@ -1242,8 +1284,12 @@ elements.voiceLanguage.addEventListener("change", () => {
   if (speechSession) setVoiceStatus("Language changed. Optional local voice is ready when you choose it.");
 });
 elements.voiceDebugEnabled.addEventListener("change", () => {
+  rememberSessionPreference(VOICE_DEBUG_ENABLED_KEY, elements.voiceDebugEnabled.checked);
   elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
   updateVoiceDiagnosticSummary();
+});
+elements.voiceDebugBackground.addEventListener("change", () => {
+  rememberSessionPreference(VOICE_DEBUG_BACKGROUND_KEY, elements.voiceDebugBackground.checked);
 });
 elements.voiceDebugExport.addEventListener("click", exportVoiceDiagnostics);
 elements.voiceDebugClear.addEventListener("click", clearVoiceDiagnostics);
@@ -1263,6 +1309,14 @@ elements.sudokuNew.addEventListener("click", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    if (localDeveloperMode() && elements.voiceDebugBackground.checked) {
+      emitSpeechInterfaceEvent("audio.state", {
+        state: "background-capture-retained",
+        reason: "explicit-local-developer-preference",
+      });
+      addVoiceTrace({ kind: "lifecycle", action: "local developer mode retained background capture" });
+      return;
+    }
     stopVoice("Voice input stopped when the page was hidden; finishing the words already heard.", { finalizePending: true });
   }
 });
@@ -1270,6 +1324,10 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
+elements.voiceDebugEnabled.checked = sessionPreference(VOICE_DEBUG_ENABLED_KEY, localDeveloperMode());
+elements.voiceDebugBackgroundLabel.hidden = !localDeveloperMode();
+elements.voiceDebugBackground.checked = localDeveloperMode()
+  && sessionPreference(VOICE_DEBUG_BACKGROUND_KEY, false);
 elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
 updateVoiceDiagnosticSummary();
 renderLearnerChoices(); renderHistory(); renderSudoku(); setupVoice(); startSet();

@@ -8,6 +8,7 @@ import { proposePageControls } from "./vendor/local-speech-interface/page-contro
 
 const GRID_CONTROL_OPERATIONS = Object.freeze(["grid.up", "grid.down", "grid.left", "grid.right"]);
 const EXACT_COMMAND_FLUSH_MS = 500;
+const COMMAND_BOOSTS = Object.freeze({ stop: 6, check: 7, next: 10, skip: 6 });
 
 const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"] });
 
@@ -80,6 +81,18 @@ const voiceDomain = Object.freeze({
 
 export function normalizeSpeechText(value, locale = "und") {
   return normalizeDomainSurface(value, locale);
+}
+
+export function commandPhraseHints(locale = "en") {
+  const selected = commandSurfaces[String(locale).toLocaleLowerCase().split("-")[0]];
+  if (!selected) return Object.freeze([]);
+  const seen = new Set();
+  return Object.freeze(Object.entries(selected).flatMap(([intent, surfaces]) => surfaces.flatMap((phrase) => {
+    const normalized = normalizeSpeechText(phrase, locale);
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [Object.freeze({ phrase, boost: COMMAND_BOOSTS[intent] })];
+  })));
 }
 
 export function spokenNumber(transcript, { locale = "en" } = {}) {

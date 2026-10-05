@@ -325,6 +325,7 @@ h3 { font-size: 1.65rem; }
 .voice-download[hidden] { display: none; }
 .voice-download progress { width: 100%; height: 8px; accent-color: var(--ochre); }
 .voice-debug-toggle { min-height: 44px; margin-top: 0.55rem; display: flex; align-items: center; gap: 0.55rem; cursor: pointer; }
+.voice-debug-toggle[hidden] { display: none; }
 .voice-debug-toggle input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--sky); }
 .voice-debug-toggle span { color: #dce7e4; font-size: 0.72rem; }
 .voice-option { min-height: 44px; display: flex; align-items: center; gap: 0.55rem; cursor: pointer; }

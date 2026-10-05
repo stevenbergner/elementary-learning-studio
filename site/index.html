@@ -197,7 +197,7 @@
                   <span><strong>Let the number-grid target follow the mouse</strong><small>Experimental and off by default. Click or keyboard focus remains the standard selection method.</small></span>
                 </label>
                 <p class="voice-heard" id="voice-heard">Recognized words will appear here and in the persistent status strip while voice is on.</p>
-                <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. “Check” validates and stays on the question; “next” validates and advances only when the answer is correct. “Skip” is recognized but acts only when an activity declares what skipping means; this practice set currently leaves it unavailable. In the number grid, exact direction sequences such as “up, up, left” or “nach oben und links” move among blank cells. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Say “stop” to turn voice input off.</p>
+                <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. “Check” validates and stays on the question; “next question” or “next” validates and advances only when the answer is correct. The longer phrase can be easier for a speech engine to detect than one very short word. “Skip” is recognized but acts only when an activity declares what skipping means; this practice set currently leaves it unavailable. In the number grid, exact direction sequences such as “up, up, left” or “nach oben und links” move among blank cells. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Say “stop” to turn voice input off.</p>
                 <p>The studio requires an on-device language pack and never falls back to an online speech service. A successful transcription can support language practice, but it is not a standardized pronunciation score.</p>
                 <p><a href="voice-privacy.html">Read the local voice and browser brief</a></p>
               </details>
@@ -207,6 +207,10 @@
                 <label class="voice-debug-toggle" for="voice-debug-enabled">
                   <input id="voice-debug-enabled" type="checkbox">
                   <span>Record local diagnostic events for this tab</span>
+                </label>
+                <label class="voice-debug-toggle" id="voice-debug-background-label" for="voice-debug-background" hidden>
+                  <input id="voice-debug-background" type="checkbox">
+                  <span>Keep local voice active when this developer tab is in the background</span>
                 </label>
                 <div class="voice-debug-output" id="voice-debug-output" hidden>
                   <p class="voice-debug-summary" id="voice-debug-summary">No utterances observed yet.</p>

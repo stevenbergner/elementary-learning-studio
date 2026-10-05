@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   commandAwareInterimFlushDelay,
+  commandPhraseHints,
   resolveVoiceIntent,
   spokenNumber,
 } from "../site/voice-intent.js";
@@ -134,6 +135,17 @@ test("shortens finalization only while interim text is an exact command", () => 
     alternatives: [],
     adaptiveFlushMs: 1133,
   }, context), 1133);
+});
+
+test("provides bounded locale-specific phrase hints with the strongest boost on navigation", () => {
+  const english = commandPhraseHints("en-US");
+  assert.deepEqual(english.find(({ phrase }) => phrase === "next"), { phrase: "next", boost: 10 });
+  assert.deepEqual(english.find(({ phrase }) => phrase === "check"), { phrase: "check", boost: 7 });
+  assert.equal(english.some(({ phrase }) => phrase === "nächste frage"), false);
+
+  const german = commandPhraseHints("de-DE");
+  assert.deepEqual(german.find(({ phrase }) => phrase === "nächste frage"), { phrase: "nächste frage", boost: 10 });
+  assert.deepEqual(commandPhraseHints("es-ES"), []);
 });
 
 test("recognizes skip while leaving its assessment semantics to the activity", () => {

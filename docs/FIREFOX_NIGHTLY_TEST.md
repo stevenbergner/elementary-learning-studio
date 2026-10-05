@@ -136,3 +136,13 @@ coalesced retry pairs `next done`, `done next`, `next check`, and `check next`
 as the existing check-and-advance operation. The captured explanatory sentence
 remains unmatched. Automated browser coverage replays both shapes so future
 timing work cannot make embedded commentary actionable.
+
+The next development pass found two observability and integration omissions.
+ELS had not passed its reviewed command vocabulary into LSI's already-tested
+contextual-hint path, so Firefox received zero application hints. It now
+requests locale-specific hints with the strongest boost on navigation phrases.
+Also, Firefox can finalize several attempts while leaving one `soundstart`
+region open; LSI now numbers every post-final result as a new logical utterance
+so the diagnostic summary exposes repeated attempts instead of merging them.
+These changes can improve candidate ranking and diagnosis, but they do not
+claim to recover an utterance when Firefox emits `nomatch` without text.
