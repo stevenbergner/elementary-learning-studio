@@ -6,7 +6,9 @@ The browser activity keeps its essential path deliberately small: keyboard and t
 
 ## Voice input
 
-Voice is a separate answer mode beside the activity, not a primary answer button. Keyboard and touch remain the obvious default. The learner must start voice explicitly and can stop it at any time; it also stops when the page is hidden or the set is completed.
+Voice is an optional page-wide input facility, not a property of one exercise and not a primary answer button. Keyboard and touch remain complete without it. The learner must start voice explicitly and can stop it at any time; it stays available while moving among supported activities and stops when the page is hidden.
+
+Once activated, a persistent bottom status strip remains visible while the setup panel scrolls away. It shows the current answer target, interim or final browser text, and the application outcome. The microphone animation alone means only that speech evidence is arriving; the text and outcome distinguish recognition from acceptance. The full in-memory developer trace remains optional.
 
 The panel remains visible in unsupported browsers, but its button is disabled and its status explains that the browser cannot prove local recognition. This prevents a partial, server-backed, or absent implementation from looking as though it accepted a click.
 

@@ -163,10 +163,12 @@ test("keeps the portrait-phone practice flow in a clear vertical order", async (
   test.skip(testInfo.project.name !== "phone-portrait-chromium", "Portrait-phone layout check");
   await page.locator("#practice").scrollIntoViewIfNeeded();
 
-  const boxes = await page.locator(".practice-controls, .practice-card, .input-mode-panel").evaluateAll((items) => items.map((item) => {
-    const box = item.getBoundingClientRect();
-    return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
-  }));
+  const boxes = await page.locator(".practice-shell").evaluate((shell) => (
+    [".input-mode-panel", ".practice-controls", ".practice-card"].map((selector) => {
+      const box = shell.querySelector(selector).getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+    })
+  ));
   expect(boxes[0].bottom).toBeLessThanOrEqual(boxes[1].top + 1);
   expect(boxes[1].bottom).toBeLessThanOrEqual(boxes[2].top + 1);
   const viewport = page.viewportSize();
@@ -289,12 +291,14 @@ test("shows local language-pack progress and starts only after the browser confi
     window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
   });
 
-  await expect(page.getByRole("button", { name: "Start voice input" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Start.*voice/ })).toBeVisible();
+  await expect(page.locator("#voice-dock")).toBeHidden();
   await expect(page.locator("#voice-language option")).toHaveText(["English", "Français", "Deutsch", "Tiếng Việt"]);
-  await page.getByRole("button", { name: "Start voice input" }).click();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
   await expect(page.locator("#voice-download")).toBeVisible();
   await expect(page.locator("#voice-download-label")).toContainText("does not report a percentage");
   await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible({ timeout: 3_000 });
+  await expect(page.locator("#voice-dock")).toBeVisible();
   await expect(page.locator("#voice-availability")).toHaveText("Private on-device speech ready");
   await expect(page.locator("#voice-privacy")).toContainText("processed on this device");
   await expect(page.locator("#voice-signal")).toHaveAttribute("data-state", "listening");
@@ -304,6 +308,7 @@ test("shows local language-pack progress and starts only after the browser confi
   await page.locator("#voice-debug-enabled").check();
   await page.evaluate(() => window.__voiceRecognition.emitResult([["four", 0.61]], false));
   await expect(page.locator("#voice-heard")).toContainText("Hearing: “four”");
+  await expect(page.locator("#voice-dock-heard")).toContainText("Hearing: “four”");
   await expect(page.locator("#voice-trace")).toContainText("interim");
   await expect(page.locator("#voice-trace")).toContainText("wait up to 900 ms for the utterance boundary");
 
@@ -323,6 +328,7 @@ test("shows local language-pack progress and starts only after the browser confi
   await page.evaluate(() => window.__voiceRecognition.emitResult([["nine", 0.96]], true));
   await expect(gridCell).toHaveText("3");
   await expect(page.locator("#voice-status")).toContainText("accepts only 1, 2, 3, or 4");
+  await expect(page.locator("#voice-dock-status")).toContainText("accepts only 1, 2, 3, or 4");
 
   const speechEvents = await page.evaluate(() => window.__speechEvents);
   expect(speechEvents.some((event) => event.type === "recognition.interim")).toBeTruthy();
@@ -341,6 +347,7 @@ test("shows local language-pack progress and starts only after the browser confi
 
   await page.getByRole("button", { name: "Stop voice input" }).click();
   await expect(page.locator("#voice-signal")).toHaveAttribute("data-state", "off");
+  await expect(page.locator("#voice-dock")).toBeHidden();
   await expect(page.locator("#voice-signal-detail")).toHaveText("No audio is being captured.");
 });
 
@@ -389,7 +396,7 @@ test("flushes a retained final word on an adaptive utterance boundary", async ({
     window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
   });
 
-  await page.getByRole("button", { name: "Start voice input" }).click();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
   await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
   await page.evaluate(() => window.__voiceRecognition.emitResult("forty", false));
   await expect(page.locator("#voice-heard")).toContainText("Hearing: “forty”");
@@ -441,7 +448,7 @@ test("resolves one safe n-best alternative and rejects conflicting alternatives"
     window.__speechEvents = [];
     window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
   });
-  await page.getByRole("button", { name: "Start voice input" }).click();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
 
   await page.evaluate(() => window.__voiceRecognition.emitFinal([
     ["for tea too", 0.58],
@@ -520,8 +527,11 @@ test("completes a whole practice set from spoken numbers", async ({ page }) => {
     window.webkitSpeechRecognition = undefined;
   });
   await page.reload();
-  await page.getByRole("button", { name: "Start voice input" }).click();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
   await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await page.locator("details.voice-options").evaluate((details) => {
+    details.open = true;
+  });
   await page.locator("#voice-auto-check").check();
 
   for (let question = 0; question < 10; question += 1) {
@@ -533,7 +543,9 @@ test("completes a whole practice set from spoken numbers", async ({ page }) => {
 
   await expect(page.locator("#complete-view")).toBeVisible({ timeout: 2_000 });
   await expect(page.locator("#result-summary")).toContainText("You solved all 10");
-  await expect(page.locator("#voice-signal")).toHaveAttribute("data-state", "off");
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(page.locator("#voice-dock")).toBeVisible();
+  await expect(page.locator("#voice-dock-target")).toContainText("No active answer target");
 });
 
 
@@ -552,7 +564,7 @@ test("never falls back to an online recognizer when a local pack is unavailable"
   });
   await page.reload();
 
-  await page.getByRole("button", { name: "Start voice input" }).click();
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
   await expect(page.locator("#voice-availability")).toHaveText("Private local speech unavailable");
   await expect(page.locator("#voice-status")).toContainText("Voice remains off");
   await expect(page.locator("#voice-status")).toContainText("keyboard and touch still work");

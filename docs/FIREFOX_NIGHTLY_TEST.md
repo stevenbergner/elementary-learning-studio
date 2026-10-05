@@ -35,7 +35,7 @@ the server attached to the terminal. Press Control-C when finished.
 ## Test checklist
 
 1. Open **Help → About Firefox Nightly** and record the version and build ID.
-2. Open the learning studio and scroll to **Answer mode → Voice input**.
+2. Open the learning studio and find **Optional page-wide input → Local voice**.
 3. Confirm that the button says **Start voice input**, not **Voice unavailable**.
 4. Select English, French, German, or Vietnamese, then press **Start voice input**.
 5. Accept Firefox's microphone and language-model download prompts.
@@ -45,6 +45,8 @@ the server attached to the terminal. Press Control-C when finished.
    reports audio capture. Optionally open **Developer voice trace**, enable it,
    and verify that interim browser text, final text, interpretation, and action
    are distinguishable.
+   Scroll to another activity and confirm the bottom status strip remains
+   visible with the current target and recognized browser text.
 8. Say the current numeric answer. Confirm it fills the field but waits for
    “check” or “done.” Then enable **Check spoken answers immediately** and
    confirm that a correct answer advances after a short feedback pause.

@@ -84,6 +84,8 @@ const elements = Object.fromEntries(Object.entries({
   voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
   voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
   voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
+  voiceDock: "#voice-dock", voiceDockStatus: "#voice-dock-status", voiceDockHeard: "#voice-dock-heard",
+  voiceDockTarget: "#voice-dock-target", voiceDockStop: "#voice-dock-stop",
   sudokuGrid: "#sudoku-grid", sudokuFeedback: "#sudoku-feedback", sudokuCheck: "#sudoku-check",
   sudokuClear: "#sudoku-clear", sudokuNew: "#sudoku-new", sudokuLabel: "#sudoku-label",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
@@ -94,6 +96,26 @@ function freshStore() { return { version: 2, profiles: [], sessions: [], lastPro
 
 function sudokuCell(index) { return elements.sudokuGrid.querySelector(`[data-sudoku-index="${index}"]`); }
 
+function setVoiceStatus(message) {
+  elements.voiceStatus.textContent = message;
+  elements.voiceDockStatus.textContent = message;
+}
+
+function setVoiceHeard(message) {
+  elements.voiceHeard.textContent = message;
+  elements.voiceDockHeard.textContent = message;
+}
+
+function setVoiceTarget(message) {
+  elements.voiceTarget.textContent = message;
+  elements.voiceDockTarget.textContent = message;
+}
+
+function showVoiceDock(show) {
+  elements.voiceDock.hidden = !show;
+  document.body.classList.toggle("has-voice-dock", show);
+}
+
 function setActiveAnswerTarget(target) {
   activeAnswerTarget = Object.freeze({ ...target });
   elements.sudokuGrid.querySelectorAll(".sudoku-cell").forEach((cell) => {
@@ -102,9 +124,11 @@ function setActiveAnswerTarget(target) {
     if (selected) cell.setAttribute("aria-current", "true");
     else cell.removeAttribute("aria-current");
   });
-  elements.voiceTarget.textContent = target.kind === "sudoku"
+  setVoiceTarget(target.kind === "sudoku"
     ? `Current speech target: number grid, row ${Math.floor(target.index / 4) + 1}, column ${(target.index % 4) + 1}.`
-    : "Current speech target: arithmetic answer.";
+    : target.kind === "math"
+      ? "Current speech target: arithmetic answer."
+      : "No active answer target. Select an exercise field or grid cell.");
 }
 
 function activateSudokuCell(index, { focus = false } = {}) {
@@ -274,7 +298,6 @@ function currentQuestion() { return questions[index]; }
 
 function startSet(kind = operation) {
   clearTimeout(voiceAdvanceTimer);
-  if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input is off.");
   operation = kind;
   questions = makeSet(operation);
   index = 0;
@@ -358,7 +381,7 @@ function nextQuestion() {
 }
 
 function finishSet() {
-  if (voiceActive || voiceStarting || voiceShouldRun) stopVoice("Voice input stopped because the set is complete.");
+  setActiveAnswerTarget({ kind: "none" });
   const profile = ensureProfile();
   const items = questions.map((question) => ({
     a: question.a, b: question.b, answer: question.answer,
@@ -555,6 +578,7 @@ function emitSpeechInterfaceEvent(type, payload = {}, adapter = "elementary-lear
 function setVoiceSignal(state, label, detail) {
   if (!elements.voiceSignal) return;
   elements.voiceSignal.dataset.state = state;
+  elements.voiceDock.dataset.state = state;
   elements.voiceSignalLabel.textContent = label;
   elements.voiceSignalDetail.textContent = detail;
 }
@@ -597,9 +621,9 @@ function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "" }
 function scheduleVoiceAdvance() {
   clearTimeout(voiceAdvanceTimer);
   const finishing = index === SET_SIZE - 1;
-  elements.voiceStatus.textContent = finishing
+  setVoiceStatus(finishing
     ? "Correct. Completing this practice set…"
-    : "Correct. Moving to the next question…";
+    : "Correct. Moving to the next question…");
   voiceAdvanceTimer = setTimeout(nextQuestion, VOICE_ADVANCE_DELAY_MS);
 }
 
@@ -618,7 +642,7 @@ function handleVoice(transcript, alternatives = []) {
   const alternativeNote = interpretation.match?.selection === "alternative"
     ? `; matched alternative “${interpretation.match.text}”`
     : "";
-  elements.voiceHeard.textContent = `Browser text: “${transcript}”${alternativeNote} → ${interpretation.action}.`;
+  setVoiceHeard(`Browser text: “${transcript}”${alternativeNote} → ${interpretation.action}.`);
   addVoiceTrace({
     kind: "final", transcript, alternatives,
     action: `${interpretation.action}${alternativeNote}`,
@@ -626,9 +650,9 @@ function handleVoice(transcript, alternatives = []) {
 
   if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
     emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: interpretation.permission });
-    elements.voiceStatus.textContent = interpretation.permission === "question-incomplete"
+    setVoiceStatus(interpretation.permission === "question-incomplete"
       ? "I recognized “next,” but this question must be solved and checked first."
-      : "I recognized that input, but the answer field is not available right now.";
+      : "I recognized that input, but the answer field is not available right now.");
     return interpretation;
   }
 
@@ -639,20 +663,20 @@ function handleVoice(transcript, alternatives = []) {
   if (interpretation.action === "check the current answer") {
     if (targetingSudoku) {
       const result = checkSudoku();
-      elements.voiceStatus.textContent = result.correct
+      setVoiceStatus(result.correct
         ? "Voice command: the number grid is complete and correct."
-        : "Voice command: the number grid was checked; keep thinking.";
+        : "Voice command: the number grid was checked; keep thinking.");
       emitSpeechInterfaceEvent("action.accepted", { action: "check the number grid", correct: result.correct });
       return interpretation;
     }
-    elements.voiceStatus.textContent = "Voice command: check the current answer.";
+    setVoiceStatus("Voice command: check the current answer.");
     checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
     if (readyForNext) scheduleVoiceAdvance();
     return interpretation;
   }
   if (interpretation.action === "move to the next question") {
-    elements.voiceStatus.textContent = "Voice command: next question.";
+    setVoiceStatus("Voice command: next question.");
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
     nextQuestion();
     return interpretation;
@@ -661,7 +685,7 @@ function handleVoice(transcript, alternatives = []) {
     if (targetingSudoku) {
       if (interpretation.value < 1 || interpretation.value > 4) {
         emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "outside-active-domain", allowedValues: [1, 2, 3, 4] });
-        elements.voiceStatus.textContent = "That number was recognized, but this grid accepts only 1, 2, 3, or 4.";
+        setVoiceStatus("That number was recognized, but this grid accepts only 1, 2, 3, or 4.");
         elements.sudokuFeedback.className = "sudoku-feedback error";
         elements.sudokuFeedback.textContent = "This small grid uses only the numbers 1–4.";
         return { ...interpretation, permitted: false, permission: "outside-active-domain" };
@@ -674,27 +698,27 @@ function handleVoice(transcript, alternatives = []) {
         column: (activeAnswerTarget.index % 4) + 1,
         checked: false,
       });
-      elements.voiceStatus.textContent = `${interpretation.value} entered in the highlighted number-grid cell.`;
+      setVoiceStatus(`${interpretation.value} entered in the highlighted number-grid cell.`);
       return interpretation;
     }
     elements.answer.value = String(interpretation.value);
     elements.answer.focus();
     if (!interpretation.checkImmediately) {
       emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, checked: false });
-      elements.voiceStatus.textContent = `${interpretation.value} entered. Say “check” or “done” when you are ready.`;
+      setVoiceStatus(`${interpretation.value} entered. Say “check” or “done” when you are ready.`);
       return interpretation;
     }
     checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
     if (readyForNext) scheduleVoiceAdvance();
-    else elements.voiceStatus.textContent = `${interpretation.value} was checked. Try another answer.`;
+    else setVoiceStatus(`${interpretation.value} was checked. Try another answer.`);
     return interpretation;
   }
   const reason = interpretation.kind === "ambiguous" ? "recognition alternatives conflict" : "no safe intent matched";
   emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason });
-  elements.voiceStatus.textContent = interpretation.kind === "ambiguous"
+  setVoiceStatus(interpretation.kind === "ambiguous"
     ? "I heard more than one possible number or command. Please say it again."
-    : "I did not match that to a number or an available command.";
+    : "I did not match that to a number or an available command.");
   return interpretation;
 }
 function supportsLocalSpeech() {
@@ -717,7 +741,7 @@ function handleSpeechSessionEvent(event) {
     elements.voiceButton.textContent = "Stop voice input";
     elements.voiceButton.setAttribute("aria-pressed", "true");
     elements.voiceButton.setAttribute("aria-busy", "false");
-    if (!resumedAfterUtterance) elements.voiceStatus.textContent = "Listening for a number or one of the shown commands…";
+    if (!resumedAfterUtterance) setVoiceStatus("Listening locally. Speak a number or one of the supported commands.");
     setVoiceSignal("listening", "Microphone active", "Firefox has confirmed that audio capture started.");
     addVoiceTrace({ kind: "audio start", action: "browser began microphone capture" });
     return;
@@ -733,7 +757,7 @@ function handleSpeechSessionEvent(event) {
   }
 
   if (type === "recognition.interim") {
-    elements.voiceHeard.textContent = payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…";
+    setVoiceHeard(payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…");
     setVoiceSignal("hearing", "Speech detected", "Interim text is arriving from the local recognizer.");
     addVoiceTrace({
       kind: "interim", transcript: payload.transcript, alternatives: payload.alternatives,
@@ -751,7 +775,7 @@ function handleSpeechSessionEvent(event) {
   if (type === "recognition.error") {
     addVoiceTrace({ kind: "error", action: voiceErrorMessage(payload.code) });
     if (payload.code === "no-speech" && voiceShouldRun) {
-      elements.voiceStatus.textContent = voiceErrorMessage(payload.code);
+      setVoiceStatus(voiceErrorMessage(payload.code));
       return;
     }
     stopVoice(voiceErrorMessage(payload.code));
@@ -809,7 +833,7 @@ async function prepareVoice() {
   if (status === "downloadable" || status === "downloading") {
     showVoiceDownload(true);
     elements.voiceButton.textContent = "Cancel setup";
-    elements.voiceStatus.textContent = "Waiting for the browser’s local language pack…";
+    setVoiceStatus("Waiting for the browser’s local language pack…");
     const installed = await RecognitionConstructor.install({
       langs: [language],
       processLocally: true,
@@ -821,7 +845,7 @@ async function prepareVoice() {
       await speechSession.prepare();
       elements.voiceAvailability.textContent = "Private on-device speech ready";
       elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
-      elements.voiceStatus.textContent = "Local language pack ready. Starting the microphone…";
+      setVoiceStatus("Local language pack ready. Starting the microphone…");
       return true;
     }
     elements.voiceAvailability.textContent = "Private local speech unavailable";
@@ -841,7 +865,7 @@ function beginRecognition() {
   elements.voiceButton.disabled = false;
   elements.voiceButton.textContent = "Cancel voice start";
   elements.voiceButton.setAttribute("aria-busy", "true");
-  elements.voiceStatus.textContent = "Waiting for the browser to start listening…";
+  setVoiceStatus("Waiting for the browser to start listening…");
   setVoiceSignal("preparing", "Starting local speech", "The browser has not confirmed microphone capture yet.");
   clearTimeout(voiceStartTimer);
   voiceStartTimer = setTimeout(() => {
@@ -864,10 +888,11 @@ async function startVoice() {
   }
   voiceShouldRun = true;
   voiceStarting = true;
+  showVoiceDock(true);
   elements.voiceButton.textContent = "Cancel voice start";
   elements.voiceButton.setAttribute("aria-busy", "true");
-  elements.voiceStatus.textContent = "Preparing the browser’s speech interface…";
-  elements.voiceHeard.textContent = "Waiting for recognized words…";
+  setVoiceStatus("Preparing the browser’s speech interface…");
+  setVoiceHeard("Waiting for browser text…");
   setVoiceSignal("preparing", "Preparing local speech", "Checking the on-device language pack before opening the microphone.");
   try {
     const localReady = await prepareVoice();
@@ -894,7 +919,7 @@ function setupVoice() {
   RecognitionConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!RecognitionConstructor) {
     elements.voiceAvailability.textContent = "Unavailable in this browser";
-    elements.voiceStatus.textContent = "This browser does not provide speech recognition to web pages. Keyboard and touch remain available.";
+    setVoiceStatus("This browser does not provide speech recognition to web pages. Keyboard and touch remain available.");
     elements.voiceButton.textContent = "Voice unavailable";
     elements.voiceButton.disabled = true;
     elements.voiceLanguage.disabled = true;
@@ -903,7 +928,7 @@ function setupVoice() {
 
   if (!createSpeechSession()) {
     elements.voiceAvailability.textContent = "Unavailable in this browser";
-    elements.voiceStatus.textContent = "This browser exposes a speech interface but could not initialize it. Keyboard and touch remain available.";
+    setVoiceStatus("This browser exposes a speech interface but could not initialize it. Keyboard and touch remain available.");
     elements.voiceButton.textContent = "Voice unavailable";
     elements.voiceButton.disabled = true;
     elements.voiceLanguage.disabled = true;
@@ -912,7 +937,7 @@ function setupVoice() {
   if (!supportsLocalSpeech()) {
     speechSession = null;
     elements.voiceAvailability.textContent = "Private local speech unavailable";
-    elements.voiceStatus.textContent = "This browser does not expose verified on-device speech recognition. Online recognition is intentionally disabled.";
+    setVoiceStatus("This browser does not expose verified on-device speech recognition. Online recognition is intentionally disabled.");
     elements.voiceButton.textContent = "Local voice unavailable";
     elements.voiceButton.disabled = true;
     elements.voiceLanguage.disabled = true;
@@ -921,7 +946,7 @@ function setupVoice() {
   elements.voiceButton.disabled = false;
   elements.voiceLanguage.disabled = false;
   elements.voiceAvailability.textContent = "On-device speech · checked before listening";
-  elements.voiceStatus.textContent = "Ready when you choose voice input.";
+  setVoiceStatus("Optional local voice is ready when you choose it.");
   setVoiceSignal("off", "Microphone off", "No audio is being captured.");
 }
 
@@ -934,13 +959,14 @@ function stopVoice(message = "Voice input is off.") {
   voiceAudioActive = false;
   showVoiceDownload(false);
   if (elements.voiceButton) {
-    elements.voiceButton.textContent = speechSession ? "Start voice input" : "Voice unavailable";
+    elements.voiceButton.textContent = speechSession ? "Start optional voice" : "Voice unavailable";
     elements.voiceButton.setAttribute("aria-pressed", "false");
     elements.voiceButton.setAttribute("aria-busy", "false");
     elements.voiceButton.disabled = !speechSession;
   }
-  if (elements.voiceStatus) elements.voiceStatus.textContent = message;
+  if (elements.voiceStatus) setVoiceStatus(message);
   setVoiceSignal("off", "Microphone off", "No audio is being captured.");
+  showVoiceDock(false);
   if (speechSession) {
     try { speechSession.stop(); } catch (_) { /* It was already stopped. */ }
   }
@@ -984,9 +1010,10 @@ document.querySelector("#clear-all").addEventListener("click", () => {
   renderLearnerChoices(); renderHistory(); renderProgress();
 });
 elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
+elements.voiceDockStop.addEventListener("click", () => stopVoice("Optional voice input stopped."));
 elements.voiceLanguage.addEventListener("change", () => {
-  if (voiceActive || voiceStarting) stopVoice("Language changed. Start voice input again when ready.");
-  if (speechSession) elements.voiceStatus.textContent = "Language changed. Ready when you choose voice input.";
+  if (voiceActive || voiceStarting) stopVoice("Language changed. Start optional voice again when ready.");
+  if (speechSession) setVoiceStatus("Language changed. Optional local voice is ready when you choose it.");
 });
 elements.voiceDebugEnabled.addEventListener("change", () => {
   elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
