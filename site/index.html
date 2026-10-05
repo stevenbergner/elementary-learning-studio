@@ -192,8 +192,12 @@
                   <input id="voice-auto-check" type="checkbox">
                   <span><strong>Check spoken answers immediately</strong><small>Off by default. Otherwise, say “check” or “done” when ready.</small></span>
                 </label>
+                <label class="voice-option" for="voice-pointer-follow">
+                  <input id="voice-pointer-follow" type="checkbox">
+                  <span><strong>Let the number-grid target follow the mouse</strong><small>Experimental and off by default. Click or keyboard focus remains the standard selection method.</small></span>
+                </label>
                 <p class="voice-heard" id="voice-heard">Recognized words will appear here and in the persistent status strip while voice is on.</p>
-                <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. Say “check” or “done” when ready. “Next” uses the same check as the button: a correct entered answer advances, while a wrong one stays for another try. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Commands remain short and exact. Say “stop” to turn voice input off.</p>
+                <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. Say “check” or “done” when ready. “Next” uses the same check as the button: a correct entered answer advances, while a wrong one stays for another try. In the number grid, exact direction sequences such as “up, up, left” or “nach oben und links” move among blank cells. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Say “stop” to turn voice input off.</p>
                 <p>The studio requires an on-device language pack and never falls back to an online speech service. A successful transcription can support language practice, but it is not a standardized pronunciation score.</p>
                 <p><a href="voice-privacy.html">Read the local voice and browser brief</a></p>
               </details>
@@ -282,7 +286,7 @@
             <p class="eyebrow">Point, tap, type, or speak</p>
             <h2 id="number-grid-title">A small number grid</h2>
           </div>
-          <p>This child-sized 4×4 Sudoku uses only 1–4. Each row, column, and outlined 2×2 box needs every number once. Hover a blank cell with a mouse, or select it by touch or keyboard, then enter a number.</p>
+          <p>This child-sized 4×4 Sudoku uses only 1–4. Each row, column, and outlined 2×2 box needs every number once. Click a blank cell, or select it by touch or keyboard, then enter a number. Optional pointer-follow is available in the folded voice options.</p>
         </div>
 
         <div class="sudoku-shell">
@@ -308,8 +312,8 @@
 
           <aside class="sudoku-note">
             <h3>Point-and-speak</h3>
-            <p>Start optional local voice in the page-wide panel above. The highlighted blank cell becomes the speech target. Say a number from 1 to 4; “check” or “done” checks the whole grid.</p>
-            <p>Speech never changes the fixed clues, and a number outside 1–4 is rejected for this activity. Touch, keyboard, and the on-screen number buttons provide the same actions without a microphone.</p>
+            <p>Start optional local voice in the page-wide panel above. Click a blank cell to make it the speech target, then say 1–4. Exact direction sequences—such as “up, up, left” or “nach oben und links”—move the target among blank cells; “check” or “done” checks the whole grid.</p>
+            <p>Speech never changes fixed clues, and a number outside 1–4 is rejected. Touch, keyboard, and the on-screen number buttons provide the same actions without a microphone.</p>
             <a class="text-link" href="#input-mode-title">Go to voice controls <span aria-hidden="true">↑</span></a>
           </aside>
         </div>

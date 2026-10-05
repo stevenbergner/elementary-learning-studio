@@ -74,8 +74,16 @@ test("supports a uniquely solvable child Sudoku by mouse, touch, and keyboard", 
 
   const editable = page.locator(".sudoku-cell:not(.is-given)").first();
   await editable.hover();
+  await expect(editable).not.toHaveClass(/is-selected/);
+  await editable.click();
   await expect(editable).toHaveClass(/is-selected/);
   await expect(page.locator("#voice-target")).toContainText("number grid");
+  await page.locator("details.voice-options").evaluate((details) => { details.open = true; });
+  await page.locator("#voice-pointer-follow").check();
+  const secondEditable = page.locator(".sudoku-cell:not(.is-given)").nth(1);
+  await secondEditable.hover();
+  await expect(secondEditable).toHaveClass(/is-selected/);
+  await editable.click();
   await page.locator('[data-sudoku-value="2"]').click();
   await expect(editable).toHaveText("2");
   await editable.press("Backspace");
@@ -320,7 +328,7 @@ test("shows local language-pack progress and starts only after the browser confi
   await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
 
   const gridCell = page.locator(".sudoku-cell:not(.is-given)").first();
-  await gridCell.hover();
+  await gridCell.click();
   await expect(page.locator("#voice-target")).toContainText("number grid");
   await page.evaluate(() => window.__voiceRecognition.emitResult([["three", 0.96]], true));
   await expect(gridCell).toHaveText("3");
@@ -545,9 +553,13 @@ test("accepts a trailing spoken answer and lets next validate before advancing",
   await expect(page.locator("#progress-label")).toHaveText("3 of 10", { timeout: 2_000 });
 
   const gridCell = page.locator(".sudoku-cell:not(.is-given)").first();
-  await gridCell.hover();
+  await gridCell.click();
   await page.evaluate(() => window.__voiceRecognition.emitFinal("I think this square should be three"));
   await expect(gridCell).toHaveText("3");
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("right and down"));
+  await expect(page.locator("#voice-target")).toContainText("row 4, column 4");
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("nach oben und nach links"));
+  await expect(page.locator("#voice-target")).toContainText("row 1, column 1");
 });
 
 

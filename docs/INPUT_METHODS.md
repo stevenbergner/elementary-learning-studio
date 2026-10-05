@@ -40,6 +40,10 @@ Finalized speech may contain more than a bare answer. For answer values only, EL
 
 “Next” composes existing application events. If an answer is present, it invokes the same check path as the **Check my answer** button. A correct result then schedules the existing next-question transition; an incorrect result shows the ordinary feedback and stays on the question. If no answer is present, “next” is rejected. No separate navigation authority bypasses the exercise state.
 
+Number-grid direction words compose the grid's selection operation in the same way. A fully recognized sequence such as “up, up, left,” “en haut puis à gauche,” “nach oben und links,” or the reviewed Vietnamese equivalents becomes an ordered list of reversible moves. Every clause must belong to the closed direction grammar; otherwise none of the sequence runs. Movement skips fixed clues and stops at grid boundaries. It is authorized only while a blank grid cell is the active target.
+
+Click, touch, and keyboard focus are the standard ways to select a grid cell. Merely hovering does not retarget an answer by default. An experimental **Let the number-grid target follow the mouse** checkbox is available under the folded voice options for users who explicitly prefer point-and-speak behavior; it does not affect touch or keyboard interaction.
+
 When the page becomes hidden, the studio still closes microphone capture immediately and does not restart it in the background. That lifecycle stop is graceful rather than an abort: Firefox may finish the interim words it already received, so switching applications just after speaking does not deliberately discard the pending answer. An explicit learner stop remains an immediate abort.
 
 The learner-facing indicator follows browser events rather than pretending to be an audio meter: it distinguishes preparation, a started speech session, confirmed audio capture, detected speech, local interpretation, and the off state. The Web Speech interface does not give this page raw audio levels, and the studio deliberately does not open a second `getUserMedia` stream merely to animate a waveform.

@@ -11,6 +11,7 @@ export {
   supportsCapability,
 } from "./capabilities.js";
 export { compileSurfaceDomain, normalizeDomainSurface, resolveDomainEvidence } from "./domain-grammar.js";
+export { PAGE_CONTROL_OPERATIONS, applyPageControl, proposePageControl, proposePageControls } from "./page-control.js";
 export {
   INTEGER_DOMAIN_FORMS,
   INTEGER_DOMAIN_LOCALES,

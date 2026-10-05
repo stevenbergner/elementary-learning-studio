@@ -112,6 +112,28 @@ test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "xong rồi" }, { locale: "vi" }).intent, "check");
 });
 
+test("recognizes complete grid-movement sequences only for an active grid target", () => {
+  const english = resolveVoiceIntent(
+    { transcript: "up, up and left then down" },
+    { gridNavigationAvailable: true },
+  );
+  assert.equal(english.intent, "grid-move");
+  assert.equal(english.permitted, true);
+  assert.deepEqual(english.operations, ["grid.up", "grid.up", "grid.left", "grid.down"]);
+
+  const german = resolveVoiceIntent(
+    { transcript: "nach oben und nach rechts" },
+    { gridNavigationAvailable: true, locale: "de-DE" },
+  );
+  assert.deepEqual(german.operations, ["grid.up", "grid.right"]);
+
+  assert.equal(resolveVoiceIntent({ transcript: "left" }).permission, "grid-target-unavailable");
+  assert.equal(resolveVoiceIntent(
+    { transcript: "left and submit the form" },
+    { gridNavigationAvailable: true },
+  ).kind, "unmatched");
+});
+
 test("keeps recognized meaning separate from current permission", () => {
   const result = resolveVoiceIntent({ transcript: "forty two" }, { answerEnabled: false });
   assert.equal(result.kind, "number");

@@ -4,6 +4,9 @@ import {
   resolveDomainEvidence,
 } from "./vendor/local-speech-interface/domain-grammar.js";
 import { integerDomain } from "./vendor/local-speech-interface/integer-domain.js";
+import { proposePageControls } from "./vendor/local-speech-interface/page-control.js";
+
+const GRID_CONTROL_OPERATIONS = Object.freeze(["grid.up", "grid.down", "grid.left", "grid.right"]);
 
 const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"] });
 
@@ -121,8 +124,34 @@ function attachEvidence(permitted, interpretation, match) {
 
 export function resolveVoiceIntent(
   { transcript = "", alternatives = [] } = {},
-  { answerEnabled = true, answerPresent = false, readyForNext = false, locale = "en", autoCheck = false } = {},
+  { answerEnabled = true, answerPresent = false, readyForNext = false, gridNavigationAvailable = false, locale = "en", autoCheck = false } = {},
 ) {
+  const gridControls = proposePageControls(transcript, { available: GRID_CONTROL_OPERATIONS });
+  if (gridControls.length) {
+    const operations = gridControls.map(({ operation }) => operation);
+    return {
+      kind: "command",
+      intent: "grid-move",
+      permitted: gridNavigationAvailable,
+      permission: gridNavigationAvailable ? "available" : "grid-target-unavailable",
+      operations,
+      action: gridNavigationAvailable
+        ? `move the number-grid target ${operations.map((operation) => operation.split(".")[1]).join(", ")}`
+        : "do not move; no number-grid cell is selected",
+      semantic: {
+        canonicalForm: operations.join(" "),
+        canonicalKey: `grid-move:${operations.join(",")}`,
+        evidence: gridControls.map(({ evidence }) => evidence),
+      },
+      match: {
+        text: transcript,
+        normalized: normalizeSpeechText(transcript, locale),
+        confidence: alternatives[0]?.confidence,
+        candidateIndex: 0,
+        selection: "primary",
+      },
+    };
+  }
   const resolution = resolveDomainEvidence({ transcript, alternatives }, voiceDomain, { locale });
   if (resolution.kind === "one") {
     return attachEvidence(

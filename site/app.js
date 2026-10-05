@@ -78,7 +78,7 @@ const elements = Object.fromEntries(Object.entries({
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
   voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
-  voiceAutoCheck: "#voice-auto-check",
+  voiceAutoCheck: "#voice-auto-check", voicePointerFollow: "#voice-pointer-follow",
   voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
   voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
   voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
@@ -200,6 +200,25 @@ function moveSudokuFocus(index, key) {
   return true;
 }
 
+function moveSudokuSelection(operation) {
+  if (activeAnswerTarget.kind !== "sudoku") return false;
+  const vectors = {
+    "grid.up": [-1, 0], "grid.down": [1, 0], "grid.left": [0, -1], "grid.right": [0, 1],
+  };
+  const vector = vectors[operation];
+  if (!vector) return false;
+  const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
+  let row = Math.floor(activeAnswerTarget.index / 4) + vector[0];
+  let column = (activeAnswerTarget.index % 4) + vector[1];
+  while (row >= 0 && row < 4 && column >= 0 && column < 4) {
+    const candidate = row * 4 + column;
+    if (!puzzle.puzzle[candidate]) return activateSudokuCell(candidate, { focus: true });
+    row += vector[0];
+    column += vector[1];
+  }
+  return false;
+}
+
 function renderSudoku(index = sudokuPuzzleIndex) {
   sudokuPuzzleIndex = (index + CHILD_SUDOKU_PUZZLES.length) % CHILD_SUDOKU_PUZZLES.length;
   const puzzle = CHILD_SUDOKU_PUZZLES[sudokuPuzzleIndex];
@@ -219,7 +238,9 @@ function renderSudoku(index = sudokuPuzzleIndex) {
     cell.textContent = given ? String(given) : "";
     cell.addEventListener("focus", () => { if (!given) activateSudokuCell(cellIndex); });
     cell.addEventListener("click", () => activateSudokuCell(cellIndex));
-    cell.addEventListener("pointerenter", (event) => { if (!given && event.pointerType === "mouse") activateSudokuCell(cellIndex); });
+    cell.addEventListener("pointerenter", (event) => {
+      if (!given && event.pointerType === "mouse" && elements.voicePointerFollow.checked) activateSudokuCell(cellIndex);
+    });
     cell.addEventListener("keydown", (event) => {
       if (moveSudokuFocus(cellIndex, event.key)) return event.preventDefault();
       if (!given && /^[1-4]$/.test(event.key)) { event.preventDefault(); enterSudokuValue(Number(event.key)); }
@@ -635,6 +656,7 @@ function handleVoice(transcript, alternatives = []) {
       answerEnabled: targetingSudoku || !elements.answer.disabled,
       answerPresent: !targetingSudoku && /^\d+$/.test(elements.answer.value.trim()),
       readyForNext: !targetingSudoku && readyForNext,
+      gridNavigationAvailable: targetingSudoku,
       locale: elements.voiceLanguage.value,
       autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
     },
@@ -654,8 +676,19 @@ function handleVoice(transcript, alternatives = []) {
   if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
     emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: interpretation.permission });
     setVoiceStatus(interpretation.permission === "question-incomplete"
-      ? "I recognized “next,” but this question must be solved and checked first."
-      : "I recognized that input, but the answer field is not available right now.");
+      ? "I recognized “next,” but this question needs an entered answer first."
+      : interpretation.permission === "grid-target-unavailable"
+        ? "Select a blank number-grid cell before using direction words."
+        : "I recognized that input, but the answer field is not available right now.");
+    return interpretation;
+  }
+
+  if (interpretation.intent === "grid-move") {
+    const moved = interpretation.operations.filter((operation) => moveSudokuSelection(operation)).length;
+    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, operations: interpretation.operations, moved });
+    setVoiceStatus(moved
+      ? `Moved the number-grid target ${moved} ${moved === 1 ? "step" : "steps"}.`
+      : "The number-grid target is already at that boundary.");
     return interpretation;
   }
 
