@@ -32,7 +32,13 @@ export class LocalSpeechSession extends EventTarget {
   #sequence = 0;
   #recognitionCycle = 0;
   #utterance = 0;
+  #utteranceOpen = false;
+  #utteranceCycle = 0;
   #locale;
+  #audioSource = "microphone";
+  #audioTrack = null;
+  #phraseHintCount = 0;
+  #phraseHintsApplied = false;
   #running = false;
   #finishingUtterance = false;
   #flushOnSpeechEnd;
@@ -43,6 +49,8 @@ export class LocalSpeechSession extends EventTarget {
   #recentResultGaps = [];
   #speechStartedAt = null;
   #speechEndedAt = null;
+  #soundStartedAt = null;
+  #soundEndedAt = null;
   #utteranceFinalized = false;
   #startRequestedAt = null;
   #lastAudioEndedAt = null;
@@ -54,6 +62,8 @@ export class LocalSpeechSession extends EventTarget {
     flushOnSpeechEnd = true,
     adaptiveFlush = DEFAULT_ADAPTIVE_FLUSH,
     finalizationGraceMs = DEFAULT_FINALIZATION_GRACE_MS,
+    phrases = [],
+    Phrase = globalThis.SpeechRecognitionPhrase,
   } = {}) {
     super();
     this.#locale = locale;
@@ -64,6 +74,18 @@ export class LocalSpeechSession extends EventTarget {
     const recognition = Recognition ? new Recognition() : null;
     this.#recognition = assertLocalOnlyRecognition(Recognition, recognition);
     Object.assign(this.#recognition, { lang: locale, continuous: true, interimResults: true, maxAlternatives: 3 });
+    const phraseData = phrases.map((entry) => typeof entry === "string"
+      ? { phrase: entry, boost: 5 }
+      : { phrase: entry?.phrase, boost: entry?.boost ?? 5 });
+    phraseData.forEach(({ phrase, boost }) => {
+      if (typeof phrase !== "string" || !phrase.trim()) throw new TypeError("phrase hint text must be non-empty");
+      if (!Number.isFinite(boost) || boost < 0 || boost > 10) throw new RangeError("phrase hint boost must be between 0 and 10");
+    });
+    this.#phraseHintCount = phraseData.length;
+    if (phraseData.length && typeof Phrase === "function" && "phrases" in this.#recognition) {
+      this.#recognition.phrases = phraseData.map(({ phrase, boost }) => new Phrase(phrase.trim(), boost));
+      this.#phraseHintsApplied = true;
+    }
     this.#wire();
   }
 
@@ -76,7 +98,15 @@ export class LocalSpeechSession extends EventTarget {
     return true;
   }
 
-  start() {
+  start({ audioTrack = null, audioSource = audioTrack ? "unknown" : "microphone" } = {}) {
+    if (audioTrack !== null && audioTrack?.kind !== "audio") {
+      throw new TypeError("audioTrack must be an audio MediaStreamTrack");
+    }
+    if (!["microphone", "file", "system", "unknown"].includes(audioSource)) {
+      throw new TypeError("audioSource is not recognized");
+    }
+    this.#audioSource = audioSource;
+    this.#audioTrack = audioTrack;
     this.#running = true;
     this.#finishingUtterance = false;
     this.#beginRecognition();
@@ -93,7 +123,7 @@ export class LocalSpeechSession extends EventTarget {
   #event(type, payload = {}) {
     const event = createSpeechEvent({
       sequence: this.#sequence++, type, adapter: "firefox-web-speech", locale: this.#locale,
-      audioSource: "microphone", localProcessing: "verified", payload: {
+      audioSource: this.#audioSource, localProcessing: "verified", payload: {
         ...payload,
         lifecycle: {
           recognitionCycle: this.#recognitionCycle,
@@ -104,6 +134,10 @@ export class LocalSpeechSession extends EventTarget {
           languageSelection: "explicit",
           detectedLocale: null,
           capabilities: FIREFOX_WEB_SPEECH_CAPABILITIES,
+          contextualBiasing: {
+            requestedPhrases: this.#phraseHintCount,
+            applied: this.#phraseHintsApplied,
+          },
         },
       },
     });
@@ -118,7 +152,25 @@ export class LocalSpeechSession extends EventTarget {
   #beginRecognition() {
     this.#recognitionCycle += 1;
     this.#startRequestedAt = monotonicNow();
-    this.#recognition.start();
+    if (this.#audioTrack) this.#recognition.start(this.#audioTrack);
+    else this.#recognition.start();
+  }
+
+  #beginUtterance(boundary, startedAt = monotonicNow()) {
+    if (this.#utteranceOpen) return;
+    this.#utterance += 1;
+    this.#utteranceOpen = true;
+    this.#utteranceCycle = this.#recognitionCycle;
+    this.#speechStartedAt = null;
+    this.#speechEndedAt = null;
+    this.#soundStartedAt = boundary === "sound" ? startedAt : null;
+    this.#soundEndedAt = null;
+    this.#utteranceFinalized = false;
+  }
+
+  #ensureResultUtterance() {
+    if (this.#utteranceCycle === this.#recognitionCycle) return;
+    this.#beginUtterance("result");
   }
 
   #observeResult(eventTime) {
@@ -144,6 +196,7 @@ export class LocalSpeechSession extends EventTarget {
       timing: {
         requestedAtMs,
         silenceSinceSpeechEndMs: this.#speechEndedAt === null ? null : Math.round(requestedAtMs - this.#speechEndedAt),
+        silenceSinceSoundEndMs: this.#soundEndedAt === null ? null : Math.round(requestedAtMs - this.#soundEndedAt),
       },
     });
     this.#recognition.stop();
@@ -176,20 +229,42 @@ export class LocalSpeechSession extends EventTarget {
       this.#event("audio.state", { state: "paused" });
     });
     this.#recognition.addEventListener("soundstart", () => {
-      this.#event("audio.state", { state: "sound-started" });
+      const now = monotonicNow();
+      this.#clearFlushTimer();
+      this.#beginUtterance("sound", now);
+      if (this.#soundStartedAt === null) this.#soundStartedAt = now;
+      this.#event("audio.state", { state: "sound-started", boundarySource: "browser-sound" });
     });
     this.#recognition.addEventListener("soundend", () => {
-      this.#event("audio.state", { state: "sound-ended" });
+      this.#soundEndedAt = monotonicNow();
+      this.#event("audio.state", {
+        state: "sound-ended",
+        boundarySource: "browser-sound",
+        timing: {
+          soundDurationMs: this.#soundStartedAt === null ? null : Math.round(this.#soundEndedAt - this.#soundStartedAt),
+        },
+      });
+      this.#utteranceOpen = false;
+      if (this.#flushOnSpeechEnd && !this.#utteranceFinalized) {
+        // Firefox's on-device backend currently does not dispatch the Web
+        // Speech speechstart/speechend events. soundend is therefore the only
+        // content-visible boundary for a very short utterance that produced no
+        // interim text. Stop synchronously, before the browser's imminent
+        // audioend/nomatch path, so its decoder gets a chance to drain.
+        this.#finishUtterance("sound-end");
+      }
     });
     this.#recognition.addEventListener("speechstart", () => {
       this.#clearFlushTimer();
-      this.#utterance += 1;
-      this.#speechStartedAt = monotonicNow();
+      const now = monotonicNow();
+      this.#beginUtterance("speech", now);
+      this.#speechStartedAt = now;
       this.#speechEndedAt = null;
       this.#utteranceFinalized = false;
-      this.#event("audio.state", { state: "speech-started" });
+      this.#event("audio.state", { state: "speech-started", boundarySource: "browser-speech" });
     });
     this.#recognition.addEventListener("result", (event) => {
+      this.#ensureResultUtterance();
       const receivedAtMs = monotonicNow();
       const adaptiveFlushMs = this.#observeResult(event.timeStamp);
       let finalSeen = false;
@@ -205,6 +280,8 @@ export class LocalSpeechSession extends EventTarget {
             adaptiveFlushMs,
             sinceSpeechStartMs: this.#speechStartedAt === null ? null : Math.round(receivedAtMs - this.#speechStartedAt),
             sinceSpeechEndMs: this.#speechEndedAt === null ? null : Math.round(receivedAtMs - this.#speechEndedAt),
+            sinceSoundStartMs: this.#soundStartedAt === null ? null : Math.round(receivedAtMs - this.#soundStartedAt),
+            sinceSoundEndMs: this.#soundEndedAt === null ? null : Math.round(receivedAtMs - this.#soundEndedAt),
             finalization: result.isFinal ? "browser-final" : "pending",
           },
         });
@@ -227,6 +304,7 @@ export class LocalSpeechSession extends EventTarget {
           speechDurationMs: this.#speechStartedAt === null ? null : Math.round(this.#speechEndedAt - this.#speechStartedAt),
         },
       });
+      this.#utteranceOpen = false;
       if (!this.#flushOnSpeechEnd) return;
       if (this.#utteranceFinalized) return;
       // Web Speech does not let a page append synthetic silence. Gracefully
@@ -252,6 +330,7 @@ export class LocalSpeechSession extends EventTarget {
       this.#finishingUtterance = false;
       this.#lastResultAt = null;
       this.#utteranceFinalized = false;
+      this.#utteranceOpen = false;
       if (this.#running) {
         this.#beginRecognition();
       }

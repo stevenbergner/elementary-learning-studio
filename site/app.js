@@ -604,8 +604,8 @@ function summarizeVoiceDiagnostics() {
       const key = `${lifecycle.recognitionCycle}:${lifecycle.utterance}`;
       if (!utterances.has(key)) utterances.set(key, { started: false, ended: false, interims: 0, finals: 0 });
       const utterance = utterances.get(key);
-      if (event.payload.state === "speech-started") utterance.started = true;
-      if (event.payload.state === "speech-ended") utterance.ended = true;
+      if (["sound-started", "speech-started"].includes(event.payload.state)) utterance.started = true;
+      if (["sound-ended", "speech-ended"].includes(event.payload.state)) utterance.ended = true;
       if (event.type === "recognition.interim") utterance.interims += 1;
       if (event.type === "recognition.final") utterance.finals += 1;
     }
@@ -962,7 +962,7 @@ function handleSpeechSessionEvent(event) {
     } else if (payload.state === "speech-ended") {
       setVoiceSignal("processing", "Speech ended", "Waiting for Firefox to provide final text.");
     } else if (payload.state === "no-match") {
-      setVoiceStatus("Firefox detected speech but returned no matching text.");
+      setVoiceStatus("Firefox heard a sound but returned no words. Try the answer in a short phrase, or use keyboard or touch.");
     }
     addVoiceTrace({
       kind: "lifecycle",

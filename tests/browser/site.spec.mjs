@@ -281,6 +281,9 @@ test("shows local language-pack progress and starts only after the browser confi
       }
       beginSpeech() { this.dispatchEvent(new Event("speechstart")); }
       endSpeech() { this.dispatchEvent(new Event("speechend")); }
+      beginSound() { this.dispatchEvent(new Event("soundstart")); }
+      endSound() { this.dispatchEvent(new Event("soundend")); }
+      noMatch() { this.dispatchEvent(new Event("nomatch")); }
       emitResult(transcripts, isFinal) {
         const result = transcripts.map(([transcript, confidence]) => ({ transcript, confidence }));
         result.isFinal = isFinal;
@@ -333,8 +336,12 @@ test("shows local language-pack progress and starts only after the browser confi
   await expect(page.locator("#voice-debug-summary")).toContainText("1 speech burst · 1 final text");
 
   await page.evaluate(() => {
-    window.__voiceRecognition.beginSpeech();
-    window.__voiceRecognition.endSpeech();
+    // Firefox's current local backend emits sound boundaries but does not yet
+    // emit speechstart/speechend. Reproduce the one-word/no-text failure at the
+    // actual browser lifecycle boundary instead of inventing a transcript.
+    window.__voiceRecognition.beginSound();
+    window.__voiceRecognition.endSound();
+    window.__voiceRecognition.noMatch();
   });
   await expect(page.locator("#voice-debug-summary")).toContainText("2 speech bursts · 1 final text · 1 with no text", { timeout: 2_000 });
   await expect(page.locator("#voice-debug-summary")).toContainText("1 decoder flush");
