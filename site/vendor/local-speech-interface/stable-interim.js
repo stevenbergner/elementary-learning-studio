@@ -21,6 +21,7 @@ export class StableInterimCommitter {
   #pending = null;
   #committed = new Set();
   #committedOrder = [];
+  #lastCommitted = null;
 
   constructor({
     delayMs = DEFAULT_DELAY_MS,
@@ -56,6 +57,7 @@ export class StableInterimCommitter {
       if (this.#pending !== pending) return;
       this.#pending = null;
       this.#rememberCommitted(utteranceKey);
+      this.#lastCommitted = Object.freeze({ utteranceKey, candidateKey });
       this.#onCommit(Object.freeze({ utteranceKey, candidateKey, evidence: pending.evidence }));
     }, Math.round(delayMs));
     this.#pending = pending;
@@ -70,6 +72,23 @@ export class StableInterimCommitter {
     return true;
   }
 
+  /**
+   * Browsers can drain one spoken word under a different utterance identity
+   * than the interim text that preceded it (for example after a sound-end
+   * flush). A consumer that has resolved a final result to a candidate meaning
+   * calls this to drop a pending provisional candidate for that same meaning.
+   */
+  supersede(candidateKey) {
+    requireKey(candidateKey, "candidateKey");
+    if (this.#pending?.candidateKey !== candidateKey) return false;
+    return this.cancel();
+  }
+
+  /** The most recent committed candidate, or null. Cleared by reset(). */
+  get lastCommitted() {
+    return this.#lastCommitted;
+  }
+
   finalize(utteranceKey) {
     requireKey(utteranceKey, "utteranceKey");
     this.cancel(utteranceKey);
@@ -80,6 +99,7 @@ export class StableInterimCommitter {
     this.cancel();
     this.#committed.clear();
     this.#committedOrder = [];
+    this.#lastCommitted = null;
   }
 
   #rememberCommitted(utteranceKey) {

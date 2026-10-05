@@ -72,6 +72,7 @@ let voiceAudioActive = false;
 let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
 let interimCommandCommitter = null;
+let soundSinceStableCommit = true;
 let speechEventSequence = 0;
 let activeAnswerTarget = Object.freeze({ kind: "math" });
 let sudokuPuzzleIndex = 0;
@@ -959,6 +960,7 @@ function createInterimCommandCommitter() {
     delayMs: 500,
     onCommit: ({ evidence }) => {
       if (!voiceShouldRun || !evidence) return;
+      soundSinceStableCommit = false;
       setVoiceSignal("processing", "Acting on a stable command", "Firefox supplied an exact command as interim text but did not finalize it in time.");
       handleVoice(
         evidence.transcript,
@@ -1019,6 +1021,7 @@ function handleSpeechSessionEvent(event) {
   }
 
   if (type === "audio.state") {
+    if (payload.state === "speech-started" || payload.state === "sound-started") soundSinceStableCommit = true;
     if (payload.state === "speech-started") {
       setVoiceSignal("hearing", "Speech detected", "Firefox reported the beginning of a speech burst.");
     } else if (payload.state === "speech-ended") {
@@ -1083,6 +1086,29 @@ function handleSpeechSessionEvent(event) {
       });
       return;
     }
+    // Firefox may drain a short word under a new utterance number after the
+    // adapter's sound-end flush. Compare by canonical command meaning so the
+    // provisional candidate and its final cannot both act.
+    const finalPreview = resolveVoiceIntent(
+      { transcript: payload.transcript, alternatives: payload.alternatives },
+      voiceIntentContext(),
+    );
+    const finalKey = finalPreview.kind === "command" ? finalPreview.semantic?.canonicalKey : null;
+    if (finalKey && interimCommandCommitter) {
+      const last = interimCommandCommitter.lastCommitted;
+      if (!soundSinceStableCommit && last?.candidateKey === finalKey) {
+        setVoiceHeard(`Browser final text: “${payload.transcript}” · action already taken from the stable interim command.`);
+        addVoiceTrace({
+          kind: "final", transcript: payload.transcript, alternatives: payload.alternatives,
+          action: "duplicate action suppressed: same command drained after stable interim commit",
+          timing: payload.timing,
+        });
+        return;
+      }
+      if (interimCommandCommitter.supersede(finalKey)) {
+        addVoiceTrace({ kind: "final", action: "pending stable interim command superseded by browser final", timing: payload.timing });
+      }
+    }
     setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
     handleVoice(payload.transcript, payload.alternatives, payload.timing, payload.lifecycle);
     return;
@@ -1102,6 +1128,7 @@ function handleSpeechSessionEvent(event) {
 function createSpeechSession() {
   try {
     interimCommandCommitter?.reset();
+    soundSinceStableCommit = true;
     interimCommandCommitter = createInterimCommandCommitter();
     speechSession = new LocalSpeechSession({
       locale: elements.voiceLanguage.value,

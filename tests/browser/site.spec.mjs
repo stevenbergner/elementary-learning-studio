@@ -573,6 +573,142 @@ test("acts once on a stable single-word interim command when Firefox withholds f
 });
 
 
+test("does not act twice when Firefox drains a short command as a new utterance after soundend", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        this.pending = "";
+        window.__voiceRecognition = this;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      // Graceful stop drains the decoder: the retained word is finalized, then
+      // the stream ends, as Firefox does after the adapter's soundend flush.
+      stop() {
+        if (this.pending) this.emitResult(this.pending, true);
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitResult(transcript, isFinal) {
+        this.pending = isFinal ? "" : transcript;
+        const result = [{ transcript, confidence: 0.65 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  const firstProgress = await page.locator("#progress-label").innerText();
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  await page.locator("#answer").fill(String(a + b));
+  await page.evaluate(() => {
+    const recognition = window.__voiceRecognition;
+    recognition.dispatchEvent(new Event("soundstart"));
+    recognition.emitResult("next", false);
+    recognition.dispatchEvent(new Event("soundend"));
+  });
+
+  await expect(page.locator("#progress-label")).not.toHaveText(firstProgress);
+  // Wait past the 500 ms stable-interim deadline: the pending candidate must
+  // have been superseded by the drained final, not fire a second command.
+  await page.waitForTimeout(900);
+  const rejected = await page.evaluate(() => window.__speechEvents.filter((event) => event.type === "action.rejected"));
+  const accepted = await page.evaluate(() => window.__speechEvents.filter((event) => event.type === "action.accepted"));
+  expect(accepted).toHaveLength(1);
+  expect(rejected).toHaveLength(0);
+});
+
+
+test("does not act twice when Firefox drains a committed short command after a late soundend", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        this.pending = "";
+        window.__voiceRecognition = this;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      // Graceful stop drains the decoder: the retained word is finalized, then
+      // the stream ends, as Firefox does after the adapter's soundend flush.
+      stop() {
+        if (this.pending) this.emitResult(this.pending, true);
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      emitResult(transcript, isFinal) {
+        this.pending = isFinal ? "" : transcript;
+        const result = [{ transcript, confidence: 0.65 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+  await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  const firstProgress = await page.locator("#progress-label").innerText();
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  await page.locator("#answer").fill(String(a + b));
+  await page.evaluate(() => {
+    const recognition = window.__voiceRecognition;
+    recognition.dispatchEvent(new Event("soundstart"));
+    recognition.emitResult("next", false);
+  });
+  await expect(page.locator("#progress-label")).not.toHaveText(firstProgress, { timeout: 1_500 });
+  await page.evaluate(() => window.__voiceRecognition.dispatchEvent(new Event("soundend")));
+
+  // Wait past the 500 ms stable-interim deadline: the pending candidate must
+  // have been superseded by the drained final, not fire a second command.
+  await page.waitForTimeout(900);
+  const rejected = await page.evaluate(() => window.__speechEvents.filter((event) => event.type === "action.rejected"));
+  const accepted = await page.evaluate(() => window.__speechEvents.filter((event) => event.type === "action.accepted"));
+  expect(accepted).toHaveLength(1);
+  expect(rejected).toHaveLength(0);
+});
+
+
 test("stops hidden-page capture while draining the word already heard", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {
