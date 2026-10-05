@@ -537,11 +537,20 @@ test("accepts a trailing spoken answer and lets next validate before advancing",
   await expect(page.locator("#answer")).toHaveValue(String(answer));
   await expect(page.locator("#voice-dock-heard")).toContainText("used trailing answer");
 
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("check"));
+  await expect(page.locator("#progress-label")).toHaveText("1 of 10");
+  await expect(page.locator("#feedback")).toHaveClass(/success/);
+  await expect(page.locator("#voice-status")).toContainText("Say “next”");
+
   await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
   await expect(page.locator("#progress-label")).toHaveText("2 of 10", { timeout: 2_000 });
 
   const nextA = Number(await page.locator("#operand-a").innerText());
   const nextB = Number(await page.locator("#operand-b").innerText());
+  await page.evaluate(() => window.__voiceRecognition.emitFinal("skip"));
+  await expect(page.locator("#progress-label")).toHaveText("2 of 10");
+  await expect(page.locator("#voice-status")).toContainText("no skip policy");
+
   await page.locator("#answer").fill(String(nextA + nextB + 1));
   await page.evaluate(() => window.__voiceRecognition.emitFinal("next"));
   await expect(page.locator("#progress-label")).toHaveText("2 of 10");

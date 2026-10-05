@@ -10,6 +10,12 @@ const DEFAULT_ADAPTIVE_FLUSH = Object.freeze({
   cadenceMultiplier: 2.5,
 });
 
+const DEFAULT_FINALIZATION_GRACE_MS = 160;
+
+function monotonicNow() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
 export function adaptiveFlushDelay(recentGaps, policy = DEFAULT_ADAPTIVE_FLUSH) {
   if (!recentGaps.length) return policy.defaultMs;
   const ordered = [...recentGaps].sort((left, right) => left - right);
@@ -29,21 +35,29 @@ export class LocalSpeechSession extends EventTarget {
   #finishingUtterance = false;
   #flushOnSpeechEnd;
   #adaptiveFlush;
+  #finalizationGraceMs;
   #flushTimer = null;
   #lastResultAt = null;
   #recentResultGaps = [];
+  #speechStartedAt = null;
+  #speechEndedAt = null;
+  #utteranceFinalized = false;
+  #startRequestedAt = null;
+  #lastAudioEndedAt = null;
 
   constructor({
     locale = "en-US",
     Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition,
     flushOnSpeechEnd = true,
     adaptiveFlush = DEFAULT_ADAPTIVE_FLUSH,
+    finalizationGraceMs = DEFAULT_FINALIZATION_GRACE_MS,
   } = {}) {
     super();
     this.#locale = locale;
     this.#Recognition = Recognition;
     this.#flushOnSpeechEnd = flushOnSpeechEnd;
     this.#adaptiveFlush = adaptiveFlush;
+    this.#finalizationGraceMs = finalizationGraceMs;
     const recognition = Recognition ? new Recognition() : null;
     this.#recognition = assertLocalOnlyRecognition(Recognition, recognition);
     Object.assign(this.#recognition, { lang: locale, continuous: true, interimResults: true, maxAlternatives: 3 });
@@ -62,6 +76,7 @@ export class LocalSpeechSession extends EventTarget {
   start() {
     this.#running = true;
     this.#finishingUtterance = false;
+    this.#startRequestedAt = monotonicNow();
     this.#recognition.start();
   }
 
@@ -106,23 +121,52 @@ export class LocalSpeechSession extends EventTarget {
     return adaptiveFlushDelay(this.#recentResultGaps, this.#adaptiveFlush);
   }
 
-  #finishUtterance() {
+  #finishUtterance(reason) {
     if (!this.#running || this.#finishingUtterance) return;
     this.#clearFlushTimer();
     this.#finishingUtterance = true;
+    const requestedAtMs = monotonicNow();
+    this.#event("audio.state", {
+      state: "finalizing",
+      reason,
+      timing: {
+        requestedAtMs,
+        silenceSinceSpeechEndMs: this.#speechEndedAt === null ? null : Math.round(requestedAtMs - this.#speechEndedAt),
+      },
+    });
     this.#recognition.stop();
   }
 
-  #scheduleAdaptiveFlush(delay) {
+  #scheduleFlush(delay, reason) {
     if (!this.#running || this.#finishingUtterance) return;
     this.#clearFlushTimer();
-    this.#flushTimer = setTimeout(() => this.#finishUtterance(), delay);
+    this.#flushTimer = setTimeout(() => this.#finishUtterance(reason), delay);
   }
 
   #wire() {
-    this.#recognition.addEventListener("audiostart", () => this.#event("audio.state", { state: "capturing" }));
-    this.#recognition.addEventListener("audioend", () => this.#event("audio.state", { state: "paused" }));
+    this.#recognition.addEventListener("audiostart", () => {
+      const now = monotonicNow();
+      this.#event("audio.state", {
+        state: "capturing",
+        timing: {
+          startDelayMs: this.#startRequestedAt === null ? null : Math.round(now - this.#startRequestedAt),
+          captureGapMs: this.#lastAudioEndedAt === null ? null : Math.round(now - this.#lastAudioEndedAt),
+        },
+      });
+      this.#startRequestedAt = null;
+    });
+    this.#recognition.addEventListener("audioend", () => {
+      this.#lastAudioEndedAt = monotonicNow();
+      this.#event("audio.state", { state: "paused" });
+    });
+    this.#recognition.addEventListener("speechstart", () => {
+      this.#clearFlushTimer();
+      this.#speechStartedAt = monotonicNow();
+      this.#speechEndedAt = null;
+      this.#utteranceFinalized = false;
+    });
     this.#recognition.addEventListener("result", (event) => {
+      const receivedAtMs = monotonicNow();
       const adaptiveFlushMs = this.#observeResult(event.timeStamp);
       let finalSeen = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -131,24 +175,46 @@ export class LocalSpeechSession extends EventTarget {
         const alternatives = Array.from(result, (choice) => ({ text: choice.transcript.trim(), confidence: choice.confidence }));
         this.#event(result.isFinal ? "recognition.final" : "recognition.interim", {
           transcript: alternatives[0]?.text || "", alternatives, resultIndex: index,
-          timing: { browserEventMs: event.timeStamp, adaptiveFlushMs },
+          timing: {
+            browserEventMs: event.timeStamp,
+            receivedAtMs,
+            adaptiveFlushMs,
+            sinceSpeechStartMs: this.#speechStartedAt === null ? null : Math.round(receivedAtMs - this.#speechStartedAt),
+            sinceSpeechEndMs: this.#speechEndedAt === null ? null : Math.round(receivedAtMs - this.#speechEndedAt),
+            finalization: result.isFinal ? "browser-final" : "pending",
+          },
         });
       }
-      if (finalSeen) this.#finishUtterance();
-      else this.#scheduleAdaptiveFlush(adaptiveFlushMs);
+      if (finalSeen) {
+        // A browser-final result is already committed. Keep the continuous
+        // recognizer open so a rapid follow-up command is not spoken into a
+        // stop/restart gap. The stop path remains for a retained interim tail.
+        this.#utteranceFinalized = true;
+        this.#clearFlushTimer();
+      } else {
+        this.#scheduleFlush(adaptiveFlushMs, "adaptive-quiet-deadline");
+      }
     });
     this.#recognition.addEventListener("speechend", () => {
       if (!this.#flushOnSpeechEnd) return;
+      this.#speechEndedAt = monotonicNow();
+      if (this.#utteranceFinalized) return;
       // Web Speech does not let a page append synthetic silence. Gracefully
       // ending the stream asks Firefox to finalize and drain its decoder tail.
-      this.#finishUtterance();
+      // Give an already-arriving browser-final result a brief opportunity to
+      // win first; that preserves continuous listening between quick turns.
+      this.#scheduleFlush(this.#finalizationGraceMs, "speech-end-grace");
     });
     this.#recognition.addEventListener("error", (event) => this.#event("recognition.error", { code: event.error }));
     this.#recognition.addEventListener("end", () => {
       this.#clearFlushTimer();
       this.#finishingUtterance = false;
       this.#lastResultAt = null;
-      if (this.#running) this.#recognition.start();
+      this.#utteranceFinalized = false;
+      if (this.#running) {
+        this.#startRequestedAt = monotonicNow();
+        this.#recognition.start();
+      }
     });
   }
 }

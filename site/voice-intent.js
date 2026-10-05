@@ -15,21 +15,25 @@ const commandSurfaces = {
     stop: ["stop", "stop listening", "stop voice input"],
     check: ["check", "enter", "done", "i'm done", "check my answer", "that's my answer"],
     next: ["next", "next question", "go on", "continue"],
+    skip: ["skip", "skip question", "skip this question"],
   },
   fr: {
     stop: ["arrête", "arrete", "arrête l'écoute", "arrete l'ecoute"],
     check: ["vérifie", "verifie", "j'ai fini", "terminé", "termine", "c'est ma réponse", "c est ma réponse"],
     next: ["suivant", "question suivante", "continue"],
+    skip: ["passe", "passer cette question"],
   },
   de: {
     stop: ["stopp", "spracherkennung stoppen"],
     check: ["prüfen", "pruefen", "fertig", "ich bin fertig", "das ist meine antwort"],
     next: ["weiter", "nächste frage", "naechste frage"],
+    skip: ["überspringen", "ueberspringen", "frage überspringen", "frage ueberspringen"],
   },
   vi: {
     stop: ["dừng", "dừng nghe"],
     check: ["kiểm tra", "xong", "xong rồi"],
     next: ["tiếp theo", "câu tiếp theo", "tiếp tục"],
+    skip: ["bỏ qua", "bo qua", "bỏ qua câu này", "bo qua cau nay"],
   },
 };
 
@@ -78,7 +82,7 @@ export function spokenNumber(transcript, { locale = "en" } = {}) {
   return result.kind === "one" ? result.interpretation.value : null;
 }
 
-function applyPermission(interpretation, { answerEnabled, answerPresent, readyForNext, autoCheck }) {
+function applyPermission(interpretation, { answerEnabled, answerPresent, readyForNext, autoCheck, skipPolicy }) {
   const meaning = interpretation.value;
   if (meaning.kind === "number") {
     return answerEnabled
@@ -100,6 +104,11 @@ function applyPermission(interpretation, { answerEnabled, answerPresent, readyFo
       return { kind: "command", intent: "next", permitted: true, permission: "check-before-next", action: "check the current answer and move if correct" };
     }
     return { kind: "command", intent: "next", permitted: false, permission: "question-incomplete", action: "do not move yet; the current question is not complete" };
+  }
+  if (meaning.intent === "skip") {
+    return skipPolicy === "defer"
+      ? { kind: "command", intent: "skip", permitted: true, permission: "defer", action: "defer the current question" }
+      : { kind: "command", intent: "skip", permitted: false, permission: "skip-unavailable", action: "do not skip; this activity has no declared skip policy" };
   }
   throw new TypeError(`unknown interpreted command: ${meaning.intent}`);
 }
@@ -124,7 +133,15 @@ function attachEvidence(permitted, interpretation, match) {
 
 export function resolveVoiceIntent(
   { transcript = "", alternatives = [] } = {},
-  { answerEnabled = true, answerPresent = false, readyForNext = false, gridNavigationAvailable = false, locale = "en", autoCheck = false } = {},
+  {
+    answerEnabled = true,
+    answerPresent = false,
+    readyForNext = false,
+    gridNavigationAvailable = false,
+    locale = "en",
+    autoCheck = false,
+    skipPolicy = "unavailable",
+  } = {},
 ) {
   const gridControls = proposePageControls(transcript, { available: GRID_CONTROL_OPERATIONS });
   if (gridControls.length) {
@@ -155,7 +172,9 @@ export function resolveVoiceIntent(
   const resolution = resolveDomainEvidence({ transcript, alternatives }, voiceDomain, { locale });
   if (resolution.kind === "one") {
     return attachEvidence(
-      applyPermission(resolution.interpretation, { answerEnabled, answerPresent, readyForNext, autoCheck }),
+      applyPermission(resolution.interpretation, {
+        answerEnabled, answerPresent, readyForNext, autoCheck, skipPolicy,
+      }),
       resolution.interpretation,
       resolution.match,
     );

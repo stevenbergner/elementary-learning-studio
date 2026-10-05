@@ -10,7 +10,7 @@ const SET_SIZE = 10;
 const STORAGE_KEY = "elementary-learning-studio-progress-v2";
 const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
-const VOICE_ADVANCE_DELAY_MS = 850;
+const VOICE_ADVANCE_DELAY_MS = 450;
 
 const operations = {
   addition: {
@@ -608,7 +608,21 @@ function formatConfidence(confidence) {
   return Number.isFinite(confidence) && confidence > 0 ? `${Math.round(confidence * 100)}% confidence` : "confidence not reported";
 }
 
-function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "" }) {
+function formatVoiceTiming(timing = {}) {
+  const parts = [];
+  if (Number.isFinite(timing.sinceSpeechStartMs)) parts.push(`result ${timing.sinceSpeechStartMs} ms after speech began`);
+  if (Number.isFinite(timing.sinceSpeechEndMs)) parts.push(`result ${timing.sinceSpeechEndMs} ms after speech ended`);
+  if (Number.isFinite(timing.adaptiveFlushMs)) parts.push(`quiet fallback ${timing.adaptiveFlushMs} ms`);
+  if (Number.isFinite(timing.intentParseMs)) parts.push(`intent match ${timing.intentParseMs.toFixed(1)} ms`);
+  if (Number.isFinite(timing.captureGapMs)) parts.push(`recognizer restart gap ${timing.captureGapMs} ms`);
+  if (Number.isFinite(timing.startDelayMs)) parts.push(`capture start ${timing.startDelayMs} ms`);
+  if (Number.isFinite(timing.guiFrameMs)) parts.push(`GUI frame ${timing.guiFrameMs.toFixed(1)} ms`);
+  if (Number.isFinite(timing.policyDelayMs)) parts.push(`intentional feedback pause ${timing.policyDelayMs} ms`);
+  if (timing.finalization) parts.push(timing.finalization);
+  return parts.join(" · ");
+}
+
+function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "", timing = null }) {
   if (!elements.voiceDebugEnabled?.checked) return;
   const item = document.createElement("li");
   item.dataset.kind = kind;
@@ -633,10 +647,28 @@ function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "" }
     item.append(interpreted);
   }
 
+  const timingText = timing ? formatVoiceTiming(timing) : "";
+  if (timingText) {
+    const measured = document.createElement("span");
+    measured.textContent = `timing: ${timingText}`;
+    item.append(measured);
+  }
+
   elements.voiceTrace.append(item);
   while (elements.voiceTrace.children.length > VOICE_TRACE_LIMIT) elements.voiceTrace.firstElementChild.remove();
   elements.voiceDebugState.textContent = `${elements.voiceTrace.children.length} event${elements.voiceTrace.children.length === 1 ? "" : "s"} in memory.`;
   item.scrollIntoView({ block: "nearest" });
+}
+
+function advanceQuestionFromVoice(status = "Voice command: next question.", policyDelayMs = 0) {
+  const renderStartedAt = performance.now();
+  nextQuestion();
+  setVoiceStatus(status);
+  requestAnimationFrame(() => addVoiceTrace({
+    kind: "render",
+    action: "next question painted",
+    timing: { guiFrameMs: performance.now() - renderStartedAt, policyDelayMs },
+  }));
 }
 
 function scheduleVoiceAdvance() {
@@ -645,22 +677,33 @@ function scheduleVoiceAdvance() {
   setVoiceStatus(finishing
     ? "Correct. Completing this practice set…"
     : "Correct. Moving to the next question…");
-  voiceAdvanceTimer = setTimeout(nextQuestion, VOICE_ADVANCE_DELAY_MS);
+  voiceAdvanceTimer = setTimeout(
+    () => advanceQuestionFromVoice("Correct. Next question.", VOICE_ADVANCE_DELAY_MS),
+    VOICE_ADVANCE_DELAY_MS,
+  );
 }
 
-function handleVoice(transcript, alternatives = []) {
+function voiceIntentContext() {
+  const targetingSudoku = activeAnswerTarget.kind === "sudoku";
+  return {
+    answerEnabled: targetingSudoku || !elements.answer.disabled,
+    answerPresent: !targetingSudoku && /^\d+$/.test(elements.answer.value.trim()),
+    readyForNext: !targetingSudoku && readyForNext,
+    gridNavigationAvailable: targetingSudoku,
+    locale: elements.voiceLanguage.value,
+    autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
+    skipPolicy: "unavailable",
+  };
+}
+
+function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
+  const intentStartedAt = performance.now();
   const targetingSudoku = activeAnswerTarget.kind === "sudoku";
   const interpretation = resolveVoiceIntent(
     { transcript, alternatives },
-    {
-      answerEnabled: targetingSudoku || !elements.answer.disabled,
-      answerPresent: !targetingSudoku && /^\d+$/.test(elements.answer.value.trim()),
-      readyForNext: !targetingSudoku && readyForNext,
-      gridNavigationAvailable: targetingSudoku,
-      locale: elements.voiceLanguage.value,
-      autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
-    },
+    voiceIntentContext(),
   );
+  const intentParseMs = performance.now() - intentStartedAt;
   emitSpeechInterfaceEvent("intent.proposed", { interpretation });
   const alternativeNote = interpretation.match?.selection === "alternative"
     ? `; matched alternative “${interpretation.match.text}”`
@@ -671,12 +714,15 @@ function handleVoice(transcript, alternatives = []) {
   addVoiceTrace({
     kind: "final", transcript, alternatives,
     action: `${interpretation.action}${alternativeNote}${trailingNote}`,
+    timing: { ...recognitionTiming, intentParseMs },
   });
 
   if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
     emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: interpretation.permission });
     setVoiceStatus(interpretation.permission === "question-incomplete"
       ? "I recognized “next,” but this question needs an entered answer first."
+      : interpretation.permission === "skip-unavailable"
+        ? "I recognized “skip,” but this practice set has no skip policy. Nothing was counted or changed."
       : interpretation.permission === "grid-target-unavailable"
         ? "Select a blank number-grid cell before using direction words."
         : "I recognized that input, but the answer field is not available right now.");
@@ -705,22 +751,22 @@ function handleVoice(transcript, alternatives = []) {
       emitSpeechInterfaceEvent("action.accepted", { action: "check the number grid", correct: result.correct });
       return interpretation;
     }
-    setVoiceStatus("Voice command: check the current answer.");
-    checkAnswer();
+    if (!readyForNext) checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
-    if (readyForNext) scheduleVoiceAdvance();
+    setVoiceStatus(readyForNext
+      ? "Correct. Say “next” when you want the next question."
+      : "I checked the entered answer. Keep thinking and try again.");
     return interpretation;
   }
   if (interpretation.action === "move to the next question") {
-    setVoiceStatus("Voice command: next question.");
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
-    nextQuestion();
+    advanceQuestionFromVoice();
     return interpretation;
   }
   if (interpretation.action === "check the current answer and move if correct") {
     checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
-    if (readyForNext) scheduleVoiceAdvance();
+    if (readyForNext) advanceQuestionFromVoice("Correct. Next question.");
     else setVoiceStatus("I checked the entered answer. It is not correct yet, so this question stays here.");
     return interpretation;
   }
@@ -785,8 +831,21 @@ function handleSpeechSessionEvent(event) {
     elements.voiceButton.setAttribute("aria-pressed", "true");
     elements.voiceButton.setAttribute("aria-busy", "false");
     if (!resumedAfterUtterance) setVoiceStatus("Listening locally. Speak a number or one of the supported commands.");
-    setVoiceSignal("listening", "Microphone active", "Firefox has confirmed that audio capture started.");
-    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture" });
+    const resumedQuickly = Number.isFinite(payload.timing?.captureGapMs);
+    setVoiceSignal("listening", "Microphone active", resumedQuickly
+      ? `Firefox resumed capture after a ${payload.timing.captureGapMs} ms recognition restart gap.`
+      : "Firefox has confirmed that audio capture started.");
+    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture", timing: payload.timing });
+    return;
+  }
+
+  if (type === "audio.state" && payload.state === "finalizing") {
+    setVoiceSignal("processing", "Completing the last word", "Firefox has not finalized this utterance yet, so the local adapter is draining its decoder tail.");
+    addVoiceTrace({
+      kind: "decoder flush",
+      action: `graceful finalization: ${payload.reason}`,
+      timing: payload.timing,
+    });
     return;
   }
 
@@ -801,17 +860,25 @@ function handleSpeechSessionEvent(event) {
 
   if (type === "recognition.interim") {
     setVoiceHeard(payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…");
-    setVoiceSignal("hearing", "Speech detected", "Interim text is arriving from the local recognizer.");
+    const preview = resolveVoiceIntent(
+      { transcript: payload.transcript, alternatives: payload.alternatives },
+      voiceIntentContext(),
+    );
+    const commandPreview = preview.kind === "command" && preview.permitted;
+    setVoiceSignal("hearing", commandPreview ? `Heard “${payload.transcript}”` : "Speech detected", commandPreview
+      ? "Waiting for Firefox to finalize the command before acting."
+      : "Interim text is arriving from the local recognizer.");
     addVoiceTrace({
       kind: "interim", transcript: payload.transcript, alternatives: payload.alternatives,
       action: `wait up to ${payload.timing.adaptiveFlushMs} ms for the utterance boundary`,
+      timing: payload.timing,
     });
     return;
   }
 
   if (type === "recognition.final") {
     setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
-    handleVoice(payload.transcript, payload.alternatives);
+    handleVoice(payload.transcript, payload.alternatives, payload.timing);
     return;
   }
 

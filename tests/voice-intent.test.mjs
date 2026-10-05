@@ -112,6 +112,18 @@ test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "xong rồi" }, { locale: "vi" }).intent, "check");
 });
 
+test("recognizes skip while leaving its assessment semantics to the activity", () => {
+  const unavailable = resolveVoiceIntent({ transcript: "skip" });
+  assert.equal(unavailable.intent, "skip");
+  assert.equal(unavailable.permitted, false);
+  assert.equal(unavailable.permission, "skip-unavailable");
+
+  const deferred = resolveVoiceIntent({ transcript: "frage überspringen" }, { locale: "de-DE", skipPolicy: "defer" });
+  assert.equal(deferred.intent, "skip");
+  assert.equal(deferred.permitted, true);
+  assert.equal(deferred.action, "defer the current question");
+});
+
 test("recognizes complete grid-movement sequences only for an active grid target", () => {
   const english = resolveVoiceIntent(
     { transcript: "up, up and left then down" },
