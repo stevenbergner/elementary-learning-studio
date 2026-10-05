@@ -279,8 +279,9 @@ test("shows local language-pack progress and starts only after the browser confi
 
   await page.evaluate(() => window.__voiceRecognition.emitResult([["forty two", 0.87], ["forty", 0.08]], true));
   await expect(page.locator("#answer")).toHaveValue("42");
-  await expect(page.locator("#voice-heard")).toContainText("enter and check 42");
-  await expect(page.locator("#voice-trace")).toContainText("studio action: enter and check 42");
+  await expect(page.locator("#voice-heard")).toContainText("enter 42");
+  await expect(page.locator("#voice-status")).toContainText("Say “check” or “done”");
+  await expect(page.locator("#voice-trace")).toContainText("studio action: enter 42");
   await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
   const speechEvents = await page.evaluate(() => window.__speechEvents);
   expect(speechEvents.some((event) => event.type === "recognition.interim")).toBeTruthy();
@@ -479,6 +480,7 @@ test("completes a whole practice set from spoken numbers", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "Start voice input" }).click();
   await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await page.locator("#voice-auto-check").check();
 
   for (let question = 0; question < 10; question += 1) {
     const a = Number(await page.locator("#operand-a").innerText());

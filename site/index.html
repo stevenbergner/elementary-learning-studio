@@ -177,6 +177,10 @@
                 <option value="de-DE">Deutsch</option>
                 <option value="vi-VN">Tiếng Việt</option>
               </select>
+              <label class="voice-option" for="voice-auto-check">
+                <input id="voice-auto-check" type="checkbox">
+                <span><strong>Check spoken answers immediately</strong><small>Off by default. Otherwise, say “check” or “done” when ready.</small></span>
+              </label>
               <div class="voice-download" id="voice-download" hidden>
                 <progress aria-label="Browser language pack download"></progress>
                 <span id="voice-download-label">The browser is downloading its local language pack. It does not report a percentage.</span>
@@ -186,7 +190,7 @@
               <p class="voice-privacy" id="voice-privacy">Voice is enabled only when the browser verifies on-device recognition. The studio does not record or transmit audio.</p>
               <details>
                 <summary>What can I say?</summary>
-                <p>Say a number to enter and check it. You may also use an exact answer phrase such as “the answer is forty-two”; equivalent French, German, and Vietnamese phrases are supported. A correct answer advances automatically; after the tenth answer, the set completes. You can also say “check,” “next,” or “stop.”</p>
+                <p>Say a number to enter it. You may also use an exact answer phrase such as “the answer is forty-two”; equivalent French, German, and Vietnamese phrases are supported. Say “check” or “done” when ready. If immediate checking is enabled, a correct answer advances automatically; after the tenth answer, the set completes. “Next,” “go on,” and their language equivalents work only after the current answer is correct. Say “stop” to turn voice input off.</p>
                 <p>The studio requires an on-device language pack and never falls back to an online speech service. A successful transcription can support language practice, but it is not a standardized pronunciation score.</p>
                 <p><a href="voice-privacy.html">Read the local voice and browser brief</a></p>
               </details>

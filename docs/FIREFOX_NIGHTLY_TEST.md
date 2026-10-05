@@ -45,11 +45,12 @@ the server attached to the terminal. Press Control-C when finished.
    reports audio capture. Optionally open **Developer voice trace**, enable it,
    and verify that interim browser text, final text, interpretation, and action
    are distinguishable.
-8. Say the current numeric answer. Confirm it is checked immediately and that a
-   correct answer advances after a short feedback pause. Continue through all
-   ten questions and confirm the completed-set view appears without using the
-   keyboard. Also try “check” or “enter” after typing, “next” only after a
-   correct answer, and “stop”.
+8. Say the current numeric answer. Confirm it fills the field but waits for
+   “check” or “done.” Then enable **Check spoken answers immediately** and
+   confirm that a correct answer advances after a short feedback pause.
+   Continue through all ten questions and confirm the completed-set view
+   appears without using the keyboard. Also try “check” or “enter” after
+   typing, “next” only after a correct answer, and “stop”.
 9. Say a short phrase ending in a distinctive word, then remain quiet. Confirm
    that the final word appears without beginning another sentence. The LSI
    adaptive boundary should normally finalize within 650–1400 ms after interim

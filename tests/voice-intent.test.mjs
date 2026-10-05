@@ -42,6 +42,21 @@ test("uses the recognizer's primary valid number even when lower alternatives di
   assert.equal(result.match.selection, "primary");
 });
 
+test("keeps immediate checking an explicit application mode", () => {
+  const defaultMode = resolveVoiceIntent({ transcript: "forty two" });
+  assert.equal(defaultMode.checkImmediately, false);
+  assert.equal(defaultMode.action, "enter 42");
+
+  const manual = resolveVoiceIntent({ transcript: "forty two" }, { autoCheck: false });
+  assert.equal(manual.kind, "number");
+  assert.equal(manual.checkImmediately, false);
+  assert.equal(manual.action, "enter 42");
+
+  const automatic = resolveVoiceIntent({ transcript: "forty two" }, { autoCheck: true });
+  assert.equal(automatic.checkImmediately, true);
+  assert.equal(automatic.action, "enter and check 42");
+});
+
 test("recovers one unambiguous command or number from n-best alternatives", () => {
   const result = resolveVoiceIntent({
     transcript: "for tea too",
@@ -77,6 +92,10 @@ test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "prüfen" }, { locale: "de" }).intent, "check");
   assert.equal(resolveVoiceIntent({ transcript: "dừng" }, { locale: "vi" }).intent, "stop");
   assert.equal(resolveVoiceIntent({ transcript: "prüfen" }, { locale: "en" }).kind, "unmatched");
+  assert.equal(resolveVoiceIntent({ transcript: "go on" }, { locale: "en", readyForNext: true }).intent, "next");
+  assert.equal(resolveVoiceIntent({ transcript: "j'ai fini" }, { locale: "fr" }).intent, "check");
+  assert.equal(resolveVoiceIntent({ transcript: "nächste frage" }, { locale: "de", readyForNext: true }).intent, "next");
+  assert.equal(resolveVoiceIntent({ transcript: "xong rồi" }, { locale: "vi" }).intent, "check");
 });
 
 test("keeps recognized meaning separate from current permission", () => {

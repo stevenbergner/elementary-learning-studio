@@ -74,6 +74,7 @@ const elements = Object.fromEntries(Object.entries({
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
   voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
+  voiceAutoCheck: "#voice-auto-check",
   voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
   voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
   voiceSignalDetail: "#voice-signal-detail", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
@@ -481,7 +482,12 @@ function scheduleVoiceAdvance() {
 function handleVoice(transcript, alternatives = []) {
   const interpretation = resolveVoiceIntent(
     { transcript, alternatives },
-    { answerEnabled: !elements.answer.disabled, readyForNext, locale: elements.voiceLanguage.value },
+    {
+      answerEnabled: !elements.answer.disabled,
+      readyForNext,
+      locale: elements.voiceLanguage.value,
+      autoCheck: elements.voiceAutoCheck.checked,
+    },
   );
   emitSpeechInterfaceEvent("intent.proposed", { interpretation });
   const alternativeNote = interpretation.match?.selection === "alternative"
@@ -521,6 +527,11 @@ function handleVoice(transcript, alternatives = []) {
   if (interpretation.kind === "number") {
     elements.answer.value = String(interpretation.value);
     elements.answer.focus();
+    if (!interpretation.checkImmediately) {
+      emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, checked: false });
+      elements.voiceStatus.textContent = `${interpretation.value} entered. Say “check” or “done” when you are ready.`;
+      return interpretation;
+    }
     checkAnswer();
     emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
     if (readyForNext) scheduleVoiceAdvance();

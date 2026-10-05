@@ -12,13 +12,13 @@ The panel remains visible in unsupported browsers, but its button is disabled an
 
 The vocabulary is intentionally closed and commands must match the whole recognized phrase:
 
-- a spoken number fills and checks the current answer field;
-- a correct spoken answer advances automatically, including completing question ten;
+- a spoken number fills the current answer field and waits for “check” or “done” by default;
+- optional immediate-checking mode checks each spoken number and advances automatically after a correct answer, including completing question ten;
 - “check” or “enter” checks an answer entered by another input method;
 - “next” advances only when the current answer is already correct;
 - “stop” turns voice mode off.
 
-Equivalent commands and number words are included for English, French, German, and Vietnamese. Voice commands do not navigate away, submit data, modify device settings, or invoke arbitrary actions.
+Equivalent commands and number words are included for English, French, German, and Vietnamese. Narrow variants include “done”/“I’m done,” “go on”/“next question,” French “j’ai fini”/“question suivante,” German “fertig”/“nächste Frage,” and Vietnamese “xong rồi”/“câu tiếp theo.” Checking phrases submit only the current answer; continuation phrases remain unavailable until that answer is correct. Voice commands do not navigate away, submit data outside the exercise, modify device settings, or invoke arbitrary actions.
 
 A number may be spoken alone or inside one reviewed answer frame: “the answer is …,” “la réponse est …,” “die Antwort ist …,” or “câu trả lời là ….” These frames remain exact and deterministic; arbitrary surrounding prose is rejected. This also accommodates a multilingual recognizer that transcribes spoken number words as digits—for example, the locally observed German sentence “Die Antwort ist zweiundvierzig” becoming “Die Antwort ist 42”—without treating open-ended language as an instruction.
 

@@ -329,6 +329,10 @@ h3 { font-size: 1.65rem; }
 .voice-debug-toggle { min-height: 44px; margin-top: 0.55rem; display: flex; align-items: center; gap: 0.55rem; cursor: pointer; }
 .voice-debug-toggle input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--sky); }
 .voice-debug-toggle span { color: #dce7e4; font-size: 0.72rem; }
+.voice-option { min-height: 44px; display: flex; align-items: center; gap: 0.55rem; cursor: pointer; }
+.voice-option input { width: 19px; height: 19px; flex: 0 0 auto; accent-color: var(--sky); }
+.voice-option span { display: grid; gap: 0.08rem; color: #dce7e4; font-size: 0.72rem; line-height: 1.35; }
+.voice-option small { color: #b9cac6; }
 .voice-debug-output { margin-top: 0.7rem; }
 .voice-debug-output[hidden] { display: none; }
 .voice-debug-toolbar { display: flex; justify-content: space-between; gap: 0.7rem; align-items: center; color: #b9cac6; font-size: 0.67rem; }

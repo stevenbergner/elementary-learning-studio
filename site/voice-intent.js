@@ -8,10 +8,26 @@ import { integerDomain } from "./vendor/local-speech-interface/integer-domain.js
 const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"] });
 
 const commandSurfaces = {
-  en: { stop: ["stop"], check: ["check", "enter"], next: ["next"] },
-  fr: { stop: ["arrête", "arrete"], check: ["vérifie", "verifie"], next: ["suivant"] },
-  de: { stop: ["stopp"], check: ["prüfen", "pruefen"], next: ["weiter"] },
-  vi: { stop: ["dừng"], check: ["kiểm tra"], next: ["tiếp theo"] },
+  en: {
+    stop: ["stop", "stop listening", "stop voice input"],
+    check: ["check", "enter", "done", "i'm done", "check my answer", "that's my answer"],
+    next: ["next", "next question", "go on", "continue"],
+  },
+  fr: {
+    stop: ["arrête", "arrete", "arrête l'écoute", "arrete l'ecoute"],
+    check: ["vérifie", "verifie", "j'ai fini", "terminé", "termine", "c'est ma réponse", "c est ma réponse"],
+    next: ["suivant", "question suivante", "continue"],
+  },
+  de: {
+    stop: ["stopp", "spracherkennung stoppen"],
+    check: ["prüfen", "pruefen", "fertig", "ich bin fertig", "das ist meine antwort"],
+    next: ["weiter", "nächste frage", "naechste frage"],
+  },
+  vi: {
+    stop: ["dừng", "dừng nghe"],
+    check: ["kiểm tra", "xong", "xong rồi"],
+    next: ["tiếp theo", "câu tiếp theo", "tiếp tục"],
+  },
 };
 
 const commandEntries = Object.entries(commandSurfaces).flatMap(([locale, intents]) => (
@@ -58,11 +74,14 @@ export function spokenNumber(transcript, { locale = "en" } = {}) {
   return result.kind === "one" ? result.interpretation.value : null;
 }
 
-function applyPermission(interpretation, { answerEnabled, readyForNext }) {
+function applyPermission(interpretation, { answerEnabled, readyForNext, autoCheck }) {
   const meaning = interpretation.value;
   if (meaning.kind === "number") {
     return answerEnabled
-      ? { kind: "number", intent: "answer", permitted: true, permission: "available", value: meaning.value, action: `enter and check ${meaning.value}` }
+      ? {
+        kind: "number", intent: "answer", permitted: true, permission: "available", value: meaning.value,
+        checkImmediately: autoCheck, action: autoCheck ? `enter and check ${meaning.value}` : `enter ${meaning.value}`,
+      }
       : { kind: "number", intent: "answer", permitted: false, permission: "answer-unavailable", value: meaning.value, action: "do not enter; answer input is unavailable" };
   }
   if (meaning.intent === "stop") return { kind: "command", intent: "stop", permitted: true, permission: "available", action: "stop voice input" };
@@ -99,12 +118,12 @@ function attachEvidence(permitted, interpretation, match) {
 
 export function resolveVoiceIntent(
   { transcript = "", alternatives = [] } = {},
-  { answerEnabled = true, readyForNext = false, locale = "en" } = {},
+  { answerEnabled = true, readyForNext = false, locale = "en", autoCheck = false } = {},
 ) {
   const resolution = resolveDomainEvidence({ transcript, alternatives }, voiceDomain, { locale });
   if (resolution.kind === "one") {
     return attachEvidence(
-      applyPermission(resolution.interpretation, { answerEnabled, readyForNext }),
+      applyPermission(resolution.interpretation, { answerEnabled, readyForNext, autoCheck }),
       resolution.interpretation,
       resolution.match,
     );
