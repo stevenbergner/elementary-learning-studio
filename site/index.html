@@ -203,15 +203,19 @@
               </details>
               <details class="voice-debug" id="voice-debug">
                 <summary>Developer voice trace</summary>
-                <p>This optional trace shows the text the browser returns, the interpretation chosen by the studio, the resulting action, and measured recognition/restart timing. It stays only in memory and clears on reload.</p>
+                <p>This optional local diagnostic records recognition lifecycle events, browser text, studio decisions, and measured timing. It records no audio and uploads nothing. The trace stays in memory unless you explicitly save its JSON file.</p>
                 <label class="voice-debug-toggle" for="voice-debug-enabled">
                   <input id="voice-debug-enabled" type="checkbox">
-                  <span>Show recognition events for this tab</span>
+                  <span>Record local diagnostic events for this tab</span>
                 </label>
                 <div class="voice-debug-output" id="voice-debug-output" hidden>
+                  <p class="voice-debug-summary" id="voice-debug-summary">No utterances observed yet.</p>
                   <div class="voice-debug-toolbar">
                     <span id="voice-debug-state">No recognition events yet.</span>
-                    <button class="text-button" id="voice-debug-clear" type="button">Clear trace</button>
+                    <span class="voice-debug-actions">
+                      <button class="text-button" id="voice-debug-export" type="button" disabled>Save diagnostic JSON</button>
+                      <button class="text-button" id="voice-debug-clear" type="button">Clear trace</button>
+                    </span>
                   </div>
                   <ol class="voice-trace" id="voice-trace" aria-label="Voice recognition events"></ol>
                 </div>

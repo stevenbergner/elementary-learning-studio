@@ -68,6 +68,9 @@ let activeAnswerTarget = Object.freeze({ kind: "math" });
 let sudokuPuzzleIndex = 0;
 let sudokuValues = [];
 const VOICE_TRACE_LIMIT = 40;
+const VOICE_DIAGNOSTIC_LIMIT = 600;
+let voiceDiagnosticEvents = [];
+let voiceDiagnosticStartedAt = new Date().toISOString();
 
 const elements = Object.fromEntries(Object.entries({
   answer: "#answer", form: "#answer-form", check: "#check-answer", hintButton: "#show-hint", hint: "#hint-text",
@@ -83,6 +86,7 @@ const elements = Object.fromEntries(Object.entries({
   voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
   voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
   voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
+  voiceDebugSummary: "#voice-debug-summary", voiceDebugExport: "#voice-debug-export",
   voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
   voiceDock: "#voice-dock", voiceDockStatus: "#voice-dock-status", voiceDockHeard: "#voice-dock-heard",
   voiceDockTarget: "#voice-dock-target", voiceDockStop: "#voice-dock-stop",
@@ -586,12 +590,102 @@ function downloadAward() {
   download(svg, `${safeFilename(session.learner)}-practice-award.svg`, "image/svg+xml;charset=utf-8");
 }
 
+function summarizeVoiceDiagnostics() {
+  const utterances = new Map();
+  let decoderFlushes = 0;
+  let recognitionRestarts = 0;
+  let acceptedActions = 0;
+  let rejectedActions = 0;
+  let errors = 0;
+
+  voiceDiagnosticEvents.forEach((event) => {
+    const lifecycle = event.payload?.lifecycle;
+    if (lifecycle?.utterance > 0) {
+      const key = `${lifecycle.recognitionCycle}:${lifecycle.utterance}`;
+      if (!utterances.has(key)) utterances.set(key, { started: false, ended: false, interims: 0, finals: 0 });
+      const utterance = utterances.get(key);
+      if (event.payload.state === "speech-started") utterance.started = true;
+      if (event.payload.state === "speech-ended") utterance.ended = true;
+      if (event.type === "recognition.interim") utterance.interims += 1;
+      if (event.type === "recognition.final") utterance.finals += 1;
+    }
+    if (event.payload?.state === "finalizing") decoderFlushes += 1;
+    if (event.payload?.state === "recognition-ended" && event.payload.willRestart) recognitionRestarts += 1;
+    if (event.type === "action.accepted") acceptedActions += 1;
+    if (event.type === "action.rejected") rejectedActions += 1;
+    if (event.type === "recognition.error") errors += 1;
+  });
+
+  const observed = [...utterances.values()].filter(({ started }) => started);
+  return {
+    events: voiceDiagnosticEvents.length,
+    speechBursts: observed.length,
+    finalTexts: observed.filter(({ finals }) => finals > 0).length,
+    noText: observed.filter(({ ended, interims, finals }) => ended && interims === 0 && finals === 0).length,
+    interimOnly: observed.filter(({ ended, interims, finals }) => ended && interims > 0 && finals === 0).length,
+    acceptedActions,
+    rejectedActions,
+    decoderFlushes,
+    recognitionRestarts,
+    errors,
+  };
+}
+
+function updateVoiceDiagnosticSummary() {
+  const summary = summarizeVoiceDiagnostics();
+  elements.voiceDebugState.textContent = `${summary.events} event${summary.events === 1 ? "" : "s"} in memory.`;
+  elements.voiceDebugSummary.textContent = summary.speechBursts
+    ? `${summary.speechBursts} speech burst${summary.speechBursts === 1 ? "" : "s"} · ${summary.finalTexts} final text · ${summary.noText} with no text · ${summary.interimOnly} interim-only · ${summary.acceptedActions} accepted · ${summary.rejectedActions} rejected · ${summary.decoderFlushes} decoder flushes · ${summary.recognitionRestarts} restarts · ${summary.errors} errors`
+    : "No utterances observed yet. Start voice and speak normally; no audio will be recorded.";
+  elements.voiceDebugExport.disabled = voiceDiagnosticEvents.length === 0;
+}
+
+function recordVoiceDiagnostic(event) {
+  if (!elements.voiceDebugEnabled?.checked) return;
+  voiceDiagnosticEvents.push(event);
+  if (voiceDiagnosticEvents.length > VOICE_DIAGNOSTIC_LIMIT) voiceDiagnosticEvents.shift();
+  updateVoiceDiagnosticSummary();
+}
+
+function clearVoiceDiagnostics() {
+  voiceDiagnosticEvents = [];
+  voiceDiagnosticStartedAt = new Date().toISOString();
+  elements.voiceTrace.replaceChildren();
+  updateVoiceDiagnosticSummary();
+}
+
+function exportVoiceDiagnostics() {
+  const createdAt = new Date().toISOString();
+  const build = new URL(location.href).searchParams.get("build") || "unlabeled";
+  const bundle = {
+    schema: "elementary-learning-studio/speech-diagnostic-v1",
+    startedAt: voiceDiagnosticStartedAt,
+    createdAt,
+    build,
+    environment: {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      recognitionLanguage: elements.voiceLanguage.value,
+    },
+    privacy: {
+      rawAudioRecorded: false,
+      uploaded: false,
+      retention: "memory-until-explicit-local-download",
+    },
+    summary: summarizeVoiceDiagnostics(),
+    events: voiceDiagnosticEvents,
+  };
+  const stamp = createdAt.replace(/[:.]/gu, "-");
+  download(JSON.stringify(bundle, null, 2), `els-speech-diagnostic-${stamp}.json`, "application/json;charset=utf-8");
+}
+
 function emitSpeechInterfaceEvent(type, payload = {}, adapter = "elementary-learning-studio") {
   const event = createSpeechEvent({
     sequence: speechEventSequence++, type, adapter,
     locale: elements.voiceLanguage?.value || "und",
     audioSource: "microphone", localProcessing: "verified", payload,
   });
+  recordVoiceDiagnostic(event);
   dispatchSpeechEvent(window, event);
   return event;
 }
@@ -656,7 +750,7 @@ function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "", 
 
   elements.voiceTrace.append(item);
   while (elements.voiceTrace.children.length > VOICE_TRACE_LIMIT) elements.voiceTrace.firstElementChild.remove();
-  elements.voiceDebugState.textContent = `${elements.voiceTrace.children.length} event${elements.voiceTrace.children.length === 1 ? "" : "s"} in memory.`;
+  updateVoiceDiagnosticSummary();
   item.scrollIntoView({ block: "nearest" });
 }
 
@@ -696,15 +790,19 @@ function voiceIntentContext() {
   };
 }
 
-function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
+function handleVoice(transcript, alternatives = [], recognitionTiming = {}, recognitionLifecycle = null) {
   const intentStartedAt = performance.now();
   const targetingSudoku = activeAnswerTarget.kind === "sudoku";
+  const emitDecision = (type, payload = {}) => emitSpeechInterfaceEvent(type, {
+    ...payload,
+    ...(recognitionLifecycle ? { lifecycle: recognitionLifecycle } : {}),
+  });
   const interpretation = resolveVoiceIntent(
     { transcript, alternatives },
     voiceIntentContext(),
   );
   const intentParseMs = performance.now() - intentStartedAt;
-  emitSpeechInterfaceEvent("intent.proposed", { interpretation });
+  emitDecision("intent.proposed", { interpretation });
   const alternativeNote = interpretation.match?.selection === "alternative"
     ? `; matched alternative “${interpretation.match.text}”`
     : "";
@@ -718,7 +816,7 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
   });
 
   if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
-    emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: interpretation.permission });
+    emitDecision("action.rejected", { action: interpretation.action, reason: interpretation.permission });
     setVoiceStatus(interpretation.permission === "question-incomplete"
       ? "I recognized “next,” but this question needs an entered answer first."
       : interpretation.permission === "skip-unavailable"
@@ -731,7 +829,7 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
 
   if (interpretation.intent === "grid-move") {
     const moved = interpretation.operations.filter((operation) => moveSudokuSelection(operation)).length;
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, operations: interpretation.operations, moved });
+    emitDecision("action.accepted", { action: interpretation.action, operations: interpretation.operations, moved });
     setVoiceStatus(moved
       ? `Moved the number-grid target ${moved} ${moved === 1 ? "step" : "steps"}.`
       : "The number-grid target is already at that boundary.");
@@ -739,7 +837,7 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
   }
 
   if (interpretation.action === "stop voice input") {
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
+    emitDecision("action.accepted", { action: interpretation.action });
     return stopVoice("Voice input stopped by spoken command.");
   }
   if (interpretation.action === "check the current answer") {
@@ -748,24 +846,24 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
       setVoiceStatus(result.correct
         ? "Voice command: the number grid is complete and correct."
         : "Voice command: the number grid was checked; keep thinking.");
-      emitSpeechInterfaceEvent("action.accepted", { action: "check the number grid", correct: result.correct });
+      emitDecision("action.accepted", { action: "check the number grid", correct: result.correct });
       return interpretation;
     }
     if (!readyForNext) checkAnswer();
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
+    emitDecision("action.accepted", { action: interpretation.action, correct: readyForNext });
     setVoiceStatus(readyForNext
       ? "Correct. Say “next” when you want the next question."
       : "I checked the entered answer. Keep thinking and try again.");
     return interpretation;
   }
   if (interpretation.action === "move to the next question") {
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action });
+    emitDecision("action.accepted", { action: interpretation.action });
     advanceQuestionFromVoice();
     return interpretation;
   }
   if (interpretation.action === "check the current answer and move if correct") {
     checkAnswer();
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, correct: readyForNext });
+    emitDecision("action.accepted", { action: interpretation.action, correct: readyForNext });
     if (readyForNext) advanceQuestionFromVoice("Correct. Next question.");
     else setVoiceStatus("I checked the entered answer. It is not correct yet, so this question stays here.");
     return interpretation;
@@ -773,14 +871,14 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
   if (interpretation.kind === "number") {
     if (targetingSudoku) {
       if (interpretation.value < 1 || interpretation.value > 4) {
-        emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason: "outside-active-domain", allowedValues: [1, 2, 3, 4] });
+        emitDecision("action.rejected", { action: interpretation.action, reason: "outside-active-domain", allowedValues: [1, 2, 3, 4] });
         setVoiceStatus("That number was recognized, but this grid accepts only 1, 2, 3, or 4.");
         elements.sudokuFeedback.className = "sudoku-feedback error";
         elements.sudokuFeedback.textContent = "This small grid uses only the numbers 1–4.";
         return { ...interpretation, permitted: false, permission: "outside-active-domain" };
       }
       enterSudokuValue(interpretation.value, "voice");
-      emitSpeechInterfaceEvent("action.accepted", {
+      emitDecision("action.accepted", {
         action: `enter ${interpretation.value} in number-grid cell`,
         value: interpretation.value,
         row: Math.floor(activeAnswerTarget.index / 4) + 1,
@@ -793,18 +891,18 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}) {
     elements.answer.value = String(interpretation.value);
     elements.answer.focus();
     if (!interpretation.checkImmediately) {
-      emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, checked: false });
+      emitDecision("action.accepted", { action: interpretation.action, value: interpretation.value, checked: false });
       setVoiceStatus(`${interpretation.value} entered. Say “check” or “done” when you are ready.`);
       return interpretation;
     }
     checkAnswer();
-    emitSpeechInterfaceEvent("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
+    emitDecision("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
     if (readyForNext) scheduleVoiceAdvance();
     else setVoiceStatus(`${interpretation.value} was checked. Try another answer.`);
     return interpretation;
   }
   const reason = interpretation.kind === "ambiguous" ? "recognition alternatives conflict" : "no safe intent matched";
-  emitSpeechInterfaceEvent("action.rejected", { action: interpretation.action, reason });
+  emitDecision("action.rejected", { action: interpretation.action, reason });
   setVoiceStatus(interpretation.kind === "ambiguous"
     ? "I heard more than one possible number or command. Please say it again."
     : "I did not match that to a number or an available command.");
@@ -858,6 +956,22 @@ function handleSpeechSessionEvent(event) {
     return;
   }
 
+  if (type === "audio.state") {
+    if (payload.state === "speech-started") {
+      setVoiceSignal("hearing", "Speech detected", "Firefox reported the beginning of a speech burst.");
+    } else if (payload.state === "speech-ended") {
+      setVoiceSignal("processing", "Speech ended", "Waiting for Firefox to provide final text.");
+    } else if (payload.state === "no-match") {
+      setVoiceStatus("Firefox detected speech but returned no matching text.");
+    }
+    addVoiceTrace({
+      kind: "lifecycle",
+      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}`,
+      timing: payload.timing,
+    });
+    return;
+  }
+
   if (type === "recognition.interim") {
     setVoiceHeard(payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…");
     const preview = resolveVoiceIntent(
@@ -878,7 +992,7 @@ function handleSpeechSessionEvent(event) {
 
   if (type === "recognition.final") {
     setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
-    handleVoice(payload.transcript, payload.alternatives, payload.timing);
+    handleVoice(payload.transcript, payload.alternatives, payload.timing, payload.lifecycle);
     return;
   }
 
@@ -1127,16 +1241,10 @@ elements.voiceLanguage.addEventListener("change", () => {
 });
 elements.voiceDebugEnabled.addEventListener("change", () => {
   elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
-  if (elements.voiceDebugEnabled.checked) elements.voiceDebugState.textContent = "No recognition events yet.";
-  else {
-    elements.voiceTrace.replaceChildren();
-    elements.voiceDebugState.textContent = "No recognition events yet.";
-  }
+  updateVoiceDiagnosticSummary();
 });
-elements.voiceDebugClear.addEventListener("click", () => {
-  elements.voiceTrace.replaceChildren();
-  elements.voiceDebugState.textContent = "No recognition events yet.";
-});
+elements.voiceDebugExport.addEventListener("click", exportVoiceDiagnostics);
+elements.voiceDebugClear.addEventListener("click", clearVoiceDiagnostics);
 document.querySelectorAll("[data-sudoku-value]").forEach((button) => button.addEventListener("click", () => {
   enterSudokuValue(Number(button.dataset.sudokuValue), "touch control");
 }));
@@ -1160,4 +1268,6 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
+elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
+updateVoiceDiagnosticSummary();
 renderLearnerChoices(); renderHistory(); renderSudoku(); setupVoice(); startSet();

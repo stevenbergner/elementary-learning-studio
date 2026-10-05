@@ -30,6 +30,8 @@ export class LocalSpeechSession extends EventTarget {
   #Recognition;
   #recognition;
   #sequence = 0;
+  #recognitionCycle = 0;
+  #utterance = 0;
   #locale;
   #running = false;
   #finishingUtterance = false;
@@ -44,6 +46,7 @@ export class LocalSpeechSession extends EventTarget {
   #utteranceFinalized = false;
   #startRequestedAt = null;
   #lastAudioEndedAt = null;
+  #cycleStartedAt = null;
 
   constructor({
     locale = "en-US",
@@ -76,8 +79,7 @@ export class LocalSpeechSession extends EventTarget {
   start() {
     this.#running = true;
     this.#finishingUtterance = false;
-    this.#startRequestedAt = monotonicNow();
-    this.#recognition.start();
+    this.#beginRecognition();
   }
 
   stop({ finalizePending = false } = {}) {
@@ -93,6 +95,10 @@ export class LocalSpeechSession extends EventTarget {
       sequence: this.#sequence++, type, adapter: "firefox-web-speech", locale: this.#locale,
       audioSource: "microphone", localProcessing: "verified", payload: {
         ...payload,
+        lifecycle: {
+          recognitionCycle: this.#recognitionCycle,
+          utterance: this.#utterance,
+        },
         recognizer: {
           requestedLocale: this.#locale,
           languageSelection: "explicit",
@@ -107,6 +113,12 @@ export class LocalSpeechSession extends EventTarget {
   #clearFlushTimer() {
     if (this.#flushTimer !== null) clearTimeout(this.#flushTimer);
     this.#flushTimer = null;
+  }
+
+  #beginRecognition() {
+    this.#recognitionCycle += 1;
+    this.#startRequestedAt = monotonicNow();
+    this.#recognition.start();
   }
 
   #observeResult(eventTime) {
@@ -144,6 +156,10 @@ export class LocalSpeechSession extends EventTarget {
   }
 
   #wire() {
+    this.#recognition.addEventListener("start", () => {
+      this.#cycleStartedAt = monotonicNow();
+      this.#event("audio.state", { state: "recognition-started" });
+    });
     this.#recognition.addEventListener("audiostart", () => {
       const now = monotonicNow();
       this.#event("audio.state", {
@@ -159,11 +175,19 @@ export class LocalSpeechSession extends EventTarget {
       this.#lastAudioEndedAt = monotonicNow();
       this.#event("audio.state", { state: "paused" });
     });
+    this.#recognition.addEventListener("soundstart", () => {
+      this.#event("audio.state", { state: "sound-started" });
+    });
+    this.#recognition.addEventListener("soundend", () => {
+      this.#event("audio.state", { state: "sound-ended" });
+    });
     this.#recognition.addEventListener("speechstart", () => {
       this.#clearFlushTimer();
+      this.#utterance += 1;
       this.#speechStartedAt = monotonicNow();
       this.#speechEndedAt = null;
       this.#utteranceFinalized = false;
+      this.#event("audio.state", { state: "speech-started" });
     });
     this.#recognition.addEventListener("result", (event) => {
       const receivedAtMs = monotonicNow();
@@ -196,8 +220,14 @@ export class LocalSpeechSession extends EventTarget {
       }
     });
     this.#recognition.addEventListener("speechend", () => {
-      if (!this.#flushOnSpeechEnd) return;
       this.#speechEndedAt = monotonicNow();
+      this.#event("audio.state", {
+        state: "speech-ended",
+        timing: {
+          speechDurationMs: this.#speechStartedAt === null ? null : Math.round(this.#speechEndedAt - this.#speechStartedAt),
+        },
+      });
+      if (!this.#flushOnSpeechEnd) return;
       if (this.#utteranceFinalized) return;
       // Web Speech does not let a page append synthetic silence. Gracefully
       // ending the stream asks Firefox to finalize and drain its decoder tail.
@@ -205,15 +235,25 @@ export class LocalSpeechSession extends EventTarget {
       // win first; that preserves continuous listening between quick turns.
       this.#scheduleFlush(this.#finalizationGraceMs, "speech-end-grace");
     });
+    this.#recognition.addEventListener("nomatch", () => {
+      this.#event("audio.state", { state: "no-match" });
+    });
     this.#recognition.addEventListener("error", (event) => this.#event("recognition.error", { code: event.error }));
     this.#recognition.addEventListener("end", () => {
+      const endedAtMs = monotonicNow();
+      this.#event("audio.state", {
+        state: "recognition-ended",
+        willRestart: this.#running,
+        timing: {
+          cycleDurationMs: this.#cycleStartedAt === null ? null : Math.round(endedAtMs - this.#cycleStartedAt),
+        },
+      });
       this.#clearFlushTimer();
       this.#finishingUtterance = false;
       this.#lastResultAt = null;
       this.#utteranceFinalized = false;
       if (this.#running) {
-        this.#startRequestedAt = monotonicNow();
-        this.#recognition.start();
+        this.#beginRecognition();
       }
     });
   }

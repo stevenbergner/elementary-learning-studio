@@ -279,6 +279,8 @@ test("shows local language-pack progress and starts only after the browser confi
         this.dispatchEvent(new Event("audioend"));
         this.dispatchEvent(new Event("end"));
       }
+      beginSpeech() { this.dispatchEvent(new Event("speechstart")); }
+      endSpeech() { this.dispatchEvent(new Event("speechend")); }
       emitResult(transcripts, isFinal) {
         const result = transcripts.map(([transcript, confidence]) => ({ transcript, confidence }));
         result.isFinal = isFinal;
@@ -314,6 +316,7 @@ test("shows local language-pack progress and starts only after the browser confi
 
   await page.locator("#voice-debug").evaluate((details) => { details.open = true; });
   await page.locator("#voice-debug-enabled").check();
+  await page.evaluate(() => window.__voiceRecognition.beginSpeech());
   await page.evaluate(() => window.__voiceRecognition.emitResult([["four", 0.61]], false));
   await expect(page.locator("#voice-heard")).toContainText("Hearing: “four”");
   await expect(page.locator("#voice-dock-heard")).toContainText("Hearing: “four”");
@@ -321,11 +324,35 @@ test("shows local language-pack progress and starts only after the browser confi
   await expect(page.locator("#voice-trace")).toContainText("wait up to 900 ms for the utterance boundary");
 
   await page.evaluate(() => window.__voiceRecognition.emitResult([["forty two", 0.87], ["forty", 0.08]], true));
+  await page.evaluate(() => window.__voiceRecognition.endSpeech());
   await expect(page.locator("#answer")).toHaveValue("42");
   await expect(page.locator("#voice-heard")).toContainText("enter 42");
   await expect(page.locator("#voice-status")).toContainText("Say “check” or “done”");
   await expect(page.locator("#voice-trace")).toContainText("studio action: enter 42");
   await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
+  await expect(page.locator("#voice-debug-summary")).toContainText("1 speech burst · 1 final text");
+
+  await page.evaluate(() => {
+    window.__voiceRecognition.beginSpeech();
+    window.__voiceRecognition.endSpeech();
+  });
+  await expect(page.locator("#voice-debug-summary")).toContainText("2 speech bursts · 1 final text · 1 with no text", { timeout: 2_000 });
+  await expect(page.locator("#voice-debug-summary")).toContainText("1 decoder flush");
+  await expect(page.locator("#voice-debug-summary")).toContainText("1 restart");
+
+  const diagnosticDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save diagnostic JSON" }).click();
+  const diagnostic = await diagnosticDownload;
+  const diagnosticPath = await diagnostic.path();
+  const diagnosticBundle = JSON.parse(await readFile(diagnosticPath, "utf8"));
+  expect(diagnosticBundle.privacy).toEqual({
+    rawAudioRecorded: false,
+    uploaded: false,
+    retention: "memory-until-explicit-local-download",
+  });
+  expect(diagnosticBundle.summary.speechBursts).toBe(2);
+  expect(diagnosticBundle.summary.noText).toBe(1);
+  expect(diagnosticBundle.events.some((event) => event.payload?.state === "speech-started")).toBeTruthy();
 
   const gridCell = page.locator(".sudoku-cell:not(.is-given)").first();
   await gridCell.click();

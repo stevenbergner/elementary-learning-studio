@@ -69,7 +69,7 @@ class SiteTests(unittest.TestCase):
             self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
         provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
         self.assertIn("0.5.0", provenance)
-        self.assertIn("b5beddf", provenance)
+        self.assertIn("e94d395", provenance)
 
 
 if __name__ == "__main__":

@@ -333,8 +333,11 @@ h3 { font-size: 1.65rem; }
 .voice-option small { color: #b9cac6; }
 .voice-debug-output { margin-top: 0.7rem; }
 .voice-debug-output[hidden] { display: none; }
-.voice-debug-toolbar { display: flex; justify-content: space-between; gap: 0.7rem; align-items: center; color: #b9cac6; font-size: 0.67rem; }
+.voice-debug-summary { margin: 0 0 0.55rem; padding: 0.5rem 0.6rem; border-radius: 7px; background: rgba(255,255,255,0.07); color: #dce7e4; font: 0.67rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.voice-debug-toolbar { display: flex; justify-content: space-between; gap: 0.7rem; align-items: center; flex-wrap: wrap; color: #b9cac6; font-size: 0.67rem; }
+.voice-debug-actions { display: flex; gap: 0.7rem; flex-wrap: wrap; }
 .voice-debug-toolbar .text-button { color: var(--sky); font-size: 0.67rem; }
+.voice-debug-toolbar .text-button:disabled { color: #82928e; cursor: default; }
 .voice-trace { max-height: 220px; margin: 0.55rem 0 0; padding: 0; overflow-y: auto; display: grid; gap: 0.45rem; list-style: none; }
 .voice-trace li { padding: 0.55rem 0.62rem; display: grid; gap: 0.16rem; border-left: 3px solid rgba(255,255,255,0.22); border-radius: 0 7px 7px 0; background: rgba(0,0,0,0.16); color: #dce7e4; font: 0.66rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .voice-trace li[data-kind="final"] { border-left-color: var(--sky); }
