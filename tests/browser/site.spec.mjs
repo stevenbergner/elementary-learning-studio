@@ -518,6 +518,61 @@ test("uses a short exact-command deadline without acting on continuing commentar
 });
 
 
+test("acts once on a stable single-word interim command when Firefox withholds final text", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        window.__voiceRecognition = this;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {}
+      emitResult(transcript, isFinal) {
+        const result = [{ transcript, confidence: 0.65 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+
+  const firstProgress = await page.locator("#progress-label").innerText();
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  await page.locator("#answer").fill(String(a + b));
+  await page.evaluate(() => window.__voiceRecognition.emitResult("next", false));
+
+  await expect(page.locator("#progress-label")).not.toHaveText(firstProgress, { timeout: 1_500 });
+  const secondProgress = await page.locator("#progress-label").innerText();
+  await expect(page.locator("#voice-trace")).toContainText("stable interim commit");
+
+  await page.evaluate(() => window.__voiceRecognition.emitResult("next", true));
+  await expect(page.locator("#progress-label")).toHaveText(secondProgress);
+  await expect(page.locator("#voice-trace")).toContainText("duplicate action suppressed");
+  const accepted = await page.evaluate(() => window.__speechEvents.filter((event) => event.type === "action.accepted"));
+  expect(accepted).toHaveLength(1);
+});
+
+
 test("stops hidden-page capture while draining the word already heard", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {

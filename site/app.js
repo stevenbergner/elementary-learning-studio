@@ -1,5 +1,6 @@
 import {
   LocalSpeechSession,
+  StableInterimCommitter,
   createSpeechEvent,
   dispatchSpeechEvent,
 } from "./vendor/local-speech-interface/index.js";
@@ -70,6 +71,7 @@ let voiceShouldRun = false;
 let voiceAudioActive = false;
 let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
+let interimCommandCommitter = null;
 let speechEventSequence = 0;
 let activeAnswerTarget = Object.freeze({ kind: "math" });
 let sudokuPuzzleIndex = 0;
@@ -826,7 +828,7 @@ function voiceIntentContext() {
   };
 }
 
-function handleVoice(transcript, alternatives = [], recognitionTiming = {}, recognitionLifecycle = null) {
+function handleVoice(transcript, alternatives = [], recognitionTiming = {}, recognitionLifecycle = null, traceKind = "final") {
   const intentStartedAt = performance.now();
   const targetingSudoku = activeAnswerTarget.kind === "sudoku";
   const emitDecision = (type, payload = {}) => emitSpeechInterfaceEvent(type, {
@@ -846,7 +848,7 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}, reco
   const trailingNote = trailingEvidence ? `; used trailing answer “${trailingEvidence.normalized}”` : "";
   setVoiceHeard(`Browser text: “${transcript}”${alternativeNote}${trailingNote} → ${interpretation.action}.`);
   addVoiceTrace({
-    kind: "final", transcript, alternatives,
+    kind: traceKind, transcript, alternatives,
     action: `${interpretation.action}${alternativeNote}${trailingNote}`,
     timing: { ...recognitionTiming, intentParseMs },
   });
@@ -944,6 +946,30 @@ function handleVoice(transcript, alternatives = [], recognitionTiming = {}, reco
     : "I did not match that to a number or an available command.");
   return interpretation;
 }
+
+function speechUtteranceKey(payload = {}) {
+  const lifecycle = payload.lifecycle;
+  return lifecycle?.recognitionCycle > 0 && lifecycle?.utterance > 0
+    ? `${lifecycle.recognitionCycle}:${lifecycle.utterance}`
+    : null;
+}
+
+function createInterimCommandCommitter() {
+  return new StableInterimCommitter({
+    delayMs: 500,
+    onCommit: ({ evidence }) => {
+      if (!voiceShouldRun || !evidence) return;
+      setVoiceSignal("processing", "Acting on a stable command", "Firefox supplied an exact command as interim text but did not finalize it in time.");
+      handleVoice(
+        evidence.transcript,
+        evidence.alternatives,
+        { ...evidence.timing, finalization: "stable-interim-commit" },
+        evidence.lifecycle,
+        "stable interim commit",
+      );
+    },
+  });
+}
 function supportsLocalSpeech() {
   return speechSession
     && typeof RecognitionConstructor?.available === "function"
@@ -1020,19 +1046,43 @@ function handleSpeechSessionEvent(event) {
       { transcript: payload.transcript, alternatives: payload.alternatives },
       voiceIntentContext(),
     );
-    const commandPreview = preview.kind === "command" && preview.permitted;
+    const commandPreview = preview.kind === "command";
+    const utteranceKey = speechUtteranceKey(payload);
+    const stableCandidate = commandPreview && payload.timing?.flushPolicy === "consumer-selected" && utteranceKey;
+    if (stableCandidate) {
+      interimCommandCommitter?.consider({
+        utteranceKey,
+        candidateKey: preview.semantic.canonicalKey,
+        evidence: payload,
+        delayMs: payload.timing.adaptiveFlushMs,
+      });
+    } else if (utteranceKey) {
+      interimCommandCommitter?.cancel(utteranceKey);
+    }
     setVoiceSignal("hearing", commandPreview ? `Heard “${payload.transcript}”` : "Speech detected", commandPreview
-      ? "Waiting for Firefox to finalize the command before acting."
+      ? `Holding the exact command for ${payload.timing.adaptiveFlushMs} ms to ensure the phrase has ended.`
       : "Interim text is arriving from the local recognizer.");
     addVoiceTrace({
       kind: "interim", transcript: payload.transcript, alternatives: payload.alternatives,
-      action: `wait up to ${payload.timing.adaptiveFlushMs} ms for the utterance boundary`,
+      action: commandPreview
+        ? `commit if the command remains unchanged for ${payload.timing.adaptiveFlushMs} ms`
+        : `wait up to ${payload.timing.adaptiveFlushMs} ms for the utterance boundary`,
       timing: payload.timing,
     });
     return;
   }
 
   if (type === "recognition.final") {
+    const utteranceKey = speechUtteranceKey(payload);
+    if (utteranceKey && interimCommandCommitter?.finalize(utteranceKey)) {
+      setVoiceHeard(`Browser final text: “${payload.transcript}” · action already taken from the stable interim command.`);
+      addVoiceTrace({
+        kind: "final", transcript: payload.transcript, alternatives: payload.alternatives,
+        action: "duplicate action suppressed after stable interim commit",
+        timing: payload.timing,
+      });
+      return;
+    }
     setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
     handleVoice(payload.transcript, payload.alternatives, payload.timing, payload.lifecycle);
     return;
@@ -1051,6 +1101,8 @@ function handleSpeechSessionEvent(event) {
 
 function createSpeechSession() {
   try {
+    interimCommandCommitter?.reset();
+    interimCommandCommitter = createInterimCommandCommitter();
     speechSession = new LocalSpeechSession({
       locale: elements.voiceLanguage.value,
       Recognition: RecognitionConstructor,
@@ -1225,6 +1277,7 @@ function stopVoice(message = "Voice input is off.", { finalizePending = false } 
   voiceStarting = false;
   voiceActive = false;
   voiceAudioActive = false;
+  interimCommandCommitter?.reset();
   showVoiceDownload(false);
   if (elements.voiceButton) {
     elements.voiceButton.textContent = speechSession ? "Start optional voice" : "Voice unavailable";

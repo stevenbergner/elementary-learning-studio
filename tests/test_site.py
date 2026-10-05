@@ -63,13 +63,14 @@ class SiteTests(unittest.TestCase):
         for name in (
             "index.js", "capabilities.js", "domain-grammar.js", "integer-domain.js",
             "local-session.js", "local-policy.js", "speech-event.js", "dom-bridge.js",
+            "stable-interim.js",
         ):
             source = vendor / name
             self.assertTrue(source.is_file())
             self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
         provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
         self.assertIn("0.5.0", provenance)
-        self.assertIn("e07a004", provenance)
+        self.assertIn("6356324", provenance)
 
 
 if __name__ == "__main__":

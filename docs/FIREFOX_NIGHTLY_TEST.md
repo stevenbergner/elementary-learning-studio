@@ -128,14 +128,17 @@ after 285 ms and then to ordinary commentary. Rejecting that longer utterance
 was correct: accepting a command merely because it occurs inside prose would
 make discussion capable of navigating the exercise.
 
-The resulting policy keeps final-only execution but uses two narrow recovery
-mechanisms. While the entire interim transcript is one reviewed command, ELS
-asks LSI to finalize after 500 ms rather than the normal adaptive 650–1400 ms;
-any continued text cancels that shorter timer. ELS also accepts the exact
-coalesced retry pairs `next done`, `done next`, `next check`, and `check next`
-as the existing check-and-advance operation. The captured explanatory sentence
-remains unmatched. Automated browser coverage replays both shapes so future
-timing work cannot make embedded commentary actionable.
+The resulting policy uses two narrow recovery mechanisms. While the entire
+interim transcript is one reviewed command, ELS asks LSI to finalize after 500
+ms rather than the normal adaptive 650–1400 ms. If Firefox still withholds a
+final result, the unchanged interim command commits at that boundary; any
+continued non-command text cancels it, and a later final is deduplicated. Exact
+repetitions such as `next next next` collapse to the same idempotent command.
+ELS also accepts the reviewed coalesced pairs `next done`, `done next`, `next
+check`, and `check next` as the existing check-and-advance operation. The
+captured explanatory sentence remains unmatched. Automated browser coverage
+now includes a single `next` that never receives final text, a late-final
+duplicate, repeated `next`, and continued commentary.
 
 The next development pass found two observability and integration omissions.
 ELS had not passed its reviewed command vocabulary into LSI's already-tested

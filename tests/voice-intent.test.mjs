@@ -113,6 +113,10 @@ test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "prüfen" }, { locale: "en" }).kind, "unmatched");
   assert.equal(resolveVoiceIntent({ transcript: "go on" }, { locale: "en", readyForNext: true }).intent, "next");
   assert.equal(resolveVoiceIntent({ transcript: "next done" }, { locale: "en", answerPresent: true }).intent, "next");
+  const repeatedNext = resolveVoiceIntent({ transcript: "next next next" }, { locale: "en", answerPresent: true });
+  assert.equal(repeatedNext.intent, "next");
+  assert.equal(repeatedNext.semantic.evidence[0].matchMode, "repeated-command");
+  assert.equal(repeatedNext.semantic.evidence[0].repetitions, 3);
   assert.equal(resolveVoiceIntent({ transcript: "next okay so next and done are really not robust" }, { locale: "en", answerPresent: true }).kind, "unmatched");
   assert.equal(resolveVoiceIntent({ transcript: "j'ai fini" }, { locale: "fr" }).intent, "check");
   assert.equal(resolveVoiceIntent({ transcript: "nächste frage" }, { locale: "de", readyForNext: true }).intent, "next");
@@ -127,6 +131,9 @@ test("shortens finalization only while interim text is an exact command", () => 
   assert.equal(commandAwareInterimFlushDelay({
     transcript: "next okay", alternatives: [], adaptiveFlushMs: 650,
   }, context), 650);
+  assert.equal(commandAwareInterimFlushDelay({
+    transcript: "next next next", alternatives: [], adaptiveFlushMs: 1180,
+  }, context), 500);
   assert.equal(commandAwareInterimFlushDelay({
     transcript: "eleven", alternatives: [], adaptiveFlushMs: 900,
   }, context), 900);

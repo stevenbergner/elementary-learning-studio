@@ -61,10 +61,42 @@ const commandDomain = compileSurfaceDomain({
   key: (value) => `command:${value.intent}`,
 });
 
+function parseRepeatedCommand(text, { locale = "en" } = {}) {
+  const baseLocale = String(locale).toLocaleLowerCase().split("-")[0];
+  const surfaces = Object.values(commandSurfaces[baseLocale] ?? {}).flat();
+  const normalized = normalizeSpeechText(text, locale);
+  for (const surface of surfaces) {
+    const command = normalizeSpeechText(surface, locale);
+    if (!command || normalized.length <= command.length) continue;
+    const repetitions = normalized.split(command).join("").trim() === ""
+      ? normalized.split(command).length - 1
+      : 0;
+    if (repetitions < 2 || normalized !== Array.from({ length: repetitions }, () => command).join(" ")) continue;
+    const parsed = commandDomain.parse(surface, { locale });
+    if (parsed.kind !== "one") continue;
+    return Object.freeze({
+      kind: "one",
+      interpretation: Object.freeze({
+        ...parsed.interpretation,
+        evidence: Object.freeze([Object.freeze({
+          ...parsed.interpretation.evidence[0],
+          surface: String(text),
+          normalized,
+          matchMode: "repeated-command",
+          repetitions,
+        })]),
+      }),
+    });
+  }
+  return Object.freeze({ kind: "none", reason: "no-repeated-command-match", normalized });
+}
+
 const voiceDomain = Object.freeze({
   parse(text, { locale } = {}) {
     const command = commandDomain.parse(text, { locale });
     if (command.kind === "one") return command;
+    const repeatedCommand = parseRepeatedCommand(text, { locale });
+    if (repeatedCommand.kind === "one") return repeatedCommand;
     const exactNumber = numberDomain.parse(text, { locale });
     const number = exactNumber.kind === "one" ? exactNumber : numberDomain.parseSuffix(text, { locale });
     if (number.kind !== "one") return number;
