@@ -149,3 +149,16 @@ region open; LSI now numbers every post-final result as a new logical utterance
 so the diagnostic summary exposes repeated attempts instead of merging them.
 These changes can improve candidate ranking and diagnosis, but they do not
 claim to recover an utterance when Firefox emits `nomatch` without text.
+
+### Verified no-event short-turn limitation
+
+The October 5, 2026 live diagnostic established a stronger failure mode than a
+late final result. Firefox sometimes retained an isolated command without
+emitting interim text, final text, `speechstart`, or `speechend`. Because the
+page received no event, neither adaptive finalization nor a shorter
+command-specific timer could begin. Later speech could release the retained
+word as part of a combined transcript. Do not characterize this as an ELS
+intent-matching delay or add captured retry phrases to the command grammar.
+
+The evidence and next integration boundary are summarized in
+[`FIREFOX_SHORT_UTTERANCE_FINDING.md`](FIREFOX_SHORT_UTTERANCE_FINDING.md).
