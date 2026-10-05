@@ -3,6 +3,8 @@ export { EVENT_TYPES, PROTOCOL, createSpeechEvent, validateSpeechEvent } from ".
 export { LOCAL_SESSION_POLICIES, assertLocalOnlyRecognition } from "./local-policy.js";
 export { DOM_EVENT_NAME, dispatchSpeechEvent } from "./dom-bridge.js";
 export { LocalSpeechSession, adaptiveFlushDelay } from "./local-session.js";
+export { DEFAULT_LOUDNESS_ENDPOINTING, LoudnessEndpointer, levelDbfs } from "./loudness-endpointer.js";
+export { RecognitionInput, openRecognitionInput, stripCarrierTokens } from "./recognition-input.js";
 export { StableInterimCommitter } from "./stable-interim.js";
 export {
   CAPABILITY_KEYS,

@@ -12,11 +12,17 @@ The progress panel shows first-try accuracy, retries, hints, facts worth revisit
 
 An optional page-wide panel offers strictly on-device, browser-provided speech recognition for English, French, German, and Vietnamese numbers and a closed set of safe commands. Keyboard and touch remain complete without it. While voice is active, a persistent status strip shows the current exercise target, live browser text, and the accepted or rejected result even after the setup panel scrolls away. By default, speech fills the answer and waits for “check” or “done”; an explicit immediate-checking mode checks each spoken number and advances after a correct answer. Exact commands can commit from unchanged interim text after a bounded 500 ms boundary when Firefox withholds its final result; continued prose cancels them, repeated identical commands remain idempotent, and late final results are deduplicated. The studio verifies the local-processing API and language pack before listening, shows language-pack setup progress, and **never falls back to an online speech service**. LSI's generated domain grammar exhaustively covers the declared integer range from 0–999, resolves ranked transcripts by canonical meaning, and rejects conflicts rather than guessing; it does not consult the correct answer. Recognition and current permission remain separate, so a number heard while the answer field is unavailable is reported as recognized but rejected—not misreported as unintelligible. Unsupported browsers stay visibly unavailable while keyboard and touch continue to work. Its observable events implement the sibling Local Speech Interface v0.1 contract, keeping recognition, intent, and accepted action distinct. See the public [Local voice and privacy brief](https://stevenbergner.github.io/elementary-learning-studio/voice-privacy.html), [Input methods and privacy](docs/INPUT_METHODS.md), and the technical [Local voice and AI research brief](docs/LOCAL_VOICE_AND_AI.md).
 
-Firefox Nightly currently has an important short-turn limitation: an isolated
-word can remain in the decoder without producing page-visible text or an
-end-of-speech event, then appear during later speech. This is why voice remains
-experimental and secondary to touch and keyboard. The measured behavior,
-upstream boundary, and next Local Speech Interface experiment are documented in
+Firefox Nightly currently has an important short-turn limitation: its English
+streaming model holds back an utterance's last word until the next word starts,
+so an isolated word such as “four” can produce no page-visible text until later
+speech. An experimental, opt-in **Help Firefox finish single words** option
+(English, off by default) lets the page detect the end of speech from loudness
+alone and play a short built-in spoken “okay” into the recognizer, never the
+speakers, which releases the held-back word. In real-recognizer fixture tests
+this turned most missed single words into prompt results. It still needs
+testing with real children's voices, and its carrier sound is generated locally
+for now. Voice therefore remains experimental and secondary to touch and
+keyboard. The mechanism, measurements, and upstream boundary are documented in
 [Firefox Nightly short-utterance finding](docs/FIREFOX_SHORT_UTTERANCE_FINDING.md).
 
 A child-sized 4×4 Sudoku demonstrates scoped point-and-speak entry without turning speech into general page control. Mouse hover, touch, keyboard, and on-screen buttons all select or fill the same cells; voice accepts only 1–4 for the highlighted editable cell. Four reviewed grids each have exactly one solution. The separate [language-exercise authoring contract](docs/LANGUAGE_EXERCISE_AUTHORING.md) compiles prompt-specific accepted phrases and checks model-specific transcription receipts, providing a bounded path toward spoken French practice without an always-running language-model judge.

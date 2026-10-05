@@ -3,6 +3,7 @@ import {
   StableInterimCommitter,
   createSpeechEvent,
   dispatchSpeechEvent,
+  openRecognitionInput,
 } from "./vendor/local-speech-interface/index.js";
 import {
   commandAwareInterimFlushDelay,
@@ -10,10 +11,16 @@ import {
   resolveVoiceIntent,
 } from "./voice-intent.js";
 import { CHILD_SUDOKU_PUZZLES, checkSudokuValues } from "./sudoku.js";
+import { previewScope } from "./preview-scope.js";
 
 const SET_SIZE = 10;
-const STORAGE_KEY = "elementary-learning-studio-progress-v2";
-const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
+// The published studio keeps its original keys. A branch or commit preview
+// shares the browser origin, so it gets its own keys and never reads or
+// overwrites a family's real progress.
+const PREVIEW_SCOPE = previewScope(globalThis.location?.pathname);
+const STORAGE_SUFFIX = PREVIEW_SCOPE ? `:preview:${PREVIEW_SCOPE}` : "";
+const STORAGE_KEY = `elementary-learning-studio-progress-v2${STORAGE_SUFFIX}`;
+const OLD_STORAGE_KEY = `elementary-learning-studio-progress-v1${STORAGE_SUFFIX}`;
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
 const VOICE_ADVANCE_DELAY_MS = 450;
 const VOICE_DEBUG_ENABLED_KEY = "els-voice-debug-enabled";
@@ -72,6 +79,13 @@ let voiceAudioActive = false;
 let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
 let interimCommandCommitter = null;
+let recognitionInput = null;
+// A spoken carrier played only into the recognizer after the learner falls
+// silent, so Firefox commits a lone word it would otherwise hold back. The
+// recognizer writes it as "ok" or "okay"; LSI removes those tokens.
+const SPEECH_CARRIER = Object.freeze({ url: "audio/speech-carrier-en.wav", tokens: Object.freeze(["ok", "okay"]) });
+const VOICE_PRIVACY_BROWSER_CAPTURE = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
+const VOICE_PRIVACY_PAGE_CAPTURE = "Single-word help is on. The studio routes the microphone to Firefox locally and computes loudness without retaining audio samples. It records, stores, and sends neither audio nor recognized text.";
 let soundSinceStableCommit = true;
 let speechEventSequence = 0;
 let activeAnswerTarget = Object.freeze({ kind: "math" });
@@ -91,7 +105,7 @@ const elements = Object.fromEntries(Object.entries({
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
   voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
-  voiceAutoCheck: "#voice-auto-check", voicePointerFollow: "#voice-pointer-follow",
+  voiceAutoCheck: "#voice-auto-check", voicePointerFollow: "#voice-pointer-follow", voiceShortWordHelp: "#voice-short-word-help",
   voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
   voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
   voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
@@ -621,8 +635,10 @@ function summarizeVoiceDiagnostics() {
   let acceptedActions = 0;
   let rejectedActions = 0;
   let errors = 0;
+  let carrierInjections = 0;
 
   voiceDiagnosticEvents.forEach((event) => {
+    if (event.payload?.state === "carrier-injected") carrierInjections += 1;
     const lifecycle = event.payload?.lifecycle;
     if (lifecycle?.utterance > 0) {
       const key = `${lifecycle.recognitionCycle}:${lifecycle.utterance}`;
@@ -658,6 +674,7 @@ function summarizeVoiceDiagnostics() {
     rejectedActions,
     decoderFlushes,
     recognitionRestarts,
+    carrierInjections,
     errors,
   };
 }
@@ -666,7 +683,7 @@ function updateVoiceDiagnosticSummary() {
   const summary = summarizeVoiceDiagnostics();
   elements.voiceDebugState.textContent = `${summary.events} event${summary.events === 1 ? "" : "s"} in memory.`;
   elements.voiceDebugSummary.textContent = summary.speechBursts
-    ? `${summary.speechBursts} speech burst${summary.speechBursts === 1 ? "" : "s"} · ${summary.finalTexts} final text · ${summary.noText} with no text · ${summary.interimOnly} interim-only · ${summary.acceptedActions} accepted · ${summary.rejectedActions} rejected · ${summary.decoderFlushes} decoder flushes · ${summary.recognitionRestarts} restarts · ${summary.errors} errors`
+    ? `${summary.speechBursts} speech burst${summary.speechBursts === 1 ? "" : "s"} · ${summary.finalTexts} final text · ${summary.noText} with no text · ${summary.interimOnly} interim-only · ${summary.acceptedActions} accepted · ${summary.rejectedActions} rejected · ${summary.decoderFlushes} decoder flushes · ${summary.recognitionRestarts} restarts${summary.carrierInjections ? ` · ${summary.carrierInjections} carrier${summary.carrierInjections === 1 ? "" : "s"} added` : ""} · ${summary.errors} errors`
     : "No utterances observed yet. Start voice and speak normally; no audio will be recorded.";
   elements.voiceDebugExport.disabled = voiceDiagnosticEvents.length === 0;
 }
@@ -1023,7 +1040,9 @@ function handleSpeechSessionEvent(event) {
   if (type === "audio.state") {
     if (payload.state === "speech-started" || payload.state === "sound-started") soundSinceStableCommit = true;
     if (payload.state === "speech-started") {
-      setVoiceSignal("hearing", "Speech detected", "Firefox reported the beginning of a speech burst.");
+      setVoiceSignal("hearing", "Speech detected", payload.boundarySource === "page-loudness"
+        ? "The local loudness detector noticed the beginning of a speech burst."
+        : "Firefox reported the beginning of a speech burst.");
     } else if (payload.state === "speech-ended") {
       setVoiceSignal("processing", "Speech ended", "Waiting for Firefox to provide final text.");
     } else if (payload.state === "no-match") {
@@ -1032,12 +1051,20 @@ function handleSpeechSessionEvent(event) {
     const phraseHints = payload.state === "recognition-started"
       ? payload.recognizer?.contextualBiasing
       : null;
+    // Firefox accepts phrase hints through the API but its on-device engine
+    // does not use them yet, so the trace reports them as passed, not applied.
     const phraseEvidence = phraseHints?.requestedPhrases
-      ? ` · ${phraseHints.requestedPhrases} command hints ${phraseHints.applied ? "applied" : "requested but unsupported"}`
+      ? ` · ${phraseHints.requestedPhrases} command hints ${phraseHints.applied ? "passed to the browser" : "unsupported by this browser"}`
       : "";
+    const pageEvidence = payload.boundarySource === "page-loudness"
+      ? ` · page loudness${Number.isFinite(payload.timing?.speechMs) ? ` (${payload.timing.speechMs} ms speech, ${payload.timing.quietMs} ms quiet)` : ""}`
+      : "";
+    const carrierEvidence = payload.state === "carrier-injected"
+      ? ` · added the built-in “okay” (${payload.carrier.durationMs} ms) to the recognizer input`
+      : payload.state === "carrier-only" ? " · the recognizer returned only the carrier; ignored" : "";
     addVoiceTrace({
       kind: "lifecycle",
-      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}${phraseEvidence}`,
+      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}${phraseEvidence}${pageEvidence}${carrierEvidence}`,
       timing: payload.timing,
     });
     return;
@@ -1109,7 +1136,17 @@ function handleSpeechSessionEvent(event) {
         addVoiceTrace({ kind: "final", action: "pending stable interim command superseded by browser final", timing: payload.timing });
       }
     }
-    setVoiceSignal("processing", "Processing recognized words", "Matching the final local text to the studio’s small command set.");
+    if (payload.carrier?.removed?.length) {
+      addVoiceTrace({
+        kind: "carrier",
+        transcript: payload.carrier.rawTranscript,
+        action: `removed the built-in carrier “${payload.carrier.removed.join(" ")}” before matching`,
+        timing: payload.timing,
+      });
+    }
+    setVoiceSignal("processing", "Processing recognized words", payload.timing?.finalization === "carrier-released"
+      ? "The built-in carrier released this word from Firefox; matching it now."
+      : "Matching the final local text to the studio’s small command set.");
     handleVoice(payload.transcript, payload.alternatives, payload.timing, payload.lifecycle);
     return;
   }
@@ -1173,7 +1210,7 @@ async function prepareVoice() {
   if (status === "available") {
     await speechSession.prepare();
     elements.voiceAvailability.textContent = "Private on-device speech ready";
-    elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
+    elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
     return true;
   }
 
@@ -1191,7 +1228,7 @@ async function prepareVoice() {
     if (installed) {
       await speechSession.prepare();
       elements.voiceAvailability.textContent = "Private on-device speech ready";
-      elements.voicePrivacy.textContent = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
+      elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
       setVoiceStatus("Local language pack ready. Starting the microphone…");
       return true;
     }
@@ -1221,10 +1258,43 @@ function beginRecognition() {
     }
   }, 7000);
   try {
-    speechSession.start();
+    speechSession.start(recognitionInput ? { input: recognitionInput } : undefined);
   } catch (_) {
     stopVoice("Voice input could not start in this browser.");
   }
+}
+
+function shortWordHelpRequested() {
+  return elements.voiceShortWordHelp.checked && elements.voiceLanguage.value.toLowerCase().startsWith("en");
+}
+
+// Opt-in: route the microphone through the page so LSI can detect the end of
+// speech by loudness and add the carrier. Any failure falls back to the
+// browser's own capture rather than blocking voice.
+async function openShortWordHelp() {
+  closeShortWordHelp();
+  if (!shortWordHelpRequested()) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext !== "function") {
+    setVoiceStatus("Single-word help needs Web Audio microphone access, which this browser does not provide. Continuing without it.");
+    return;
+  }
+  try {
+    recognitionInput = await openRecognitionInput({ carrier: SPEECH_CARRIER });
+    elements.voicePrivacy.textContent = VOICE_PRIVACY_PAGE_CAPTURE;
+    addVoiceTrace({ kind: "lifecycle", action: "single-word help on · the page measures loudness and can add the built-in “okay” to the recognizer input; no audio is stored" });
+  } catch (error) {
+    recognitionInput = null;
+    setVoiceStatus(error?.name === "NotAllowedError"
+      ? "Microphone permission was not granted for single-word help. Continuing with the browser’s own capture."
+      : `Single-word help is unavailable (${error?.message ?? "unknown error"}). Continuing without it.`);
+    addVoiceTrace({ kind: "error", action: `single-word help unavailable: ${error?.message ?? error}` });
+  }
+}
+
+function closeShortWordHelp() {
+  recognitionInput?.close();
+  recognitionInput = null;
+  if (elements.voicePrivacy) elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
 }
 
 async function startVoice() {
@@ -1244,6 +1314,11 @@ async function startVoice() {
   try {
     const localReady = await prepareVoice();
     if (!localReady || !voiceShouldRun) return;
+    await openShortWordHelp();
+    if (!voiceShouldRun) {
+      closeShortWordHelp();
+      return;
+    }
     beginRecognition();
   } catch (_) {
     stopVoice("The browser could not prepare voice input. Keyboard and touch still work.");
@@ -1318,6 +1393,7 @@ function stopVoice(message = "Voice input is off.", { finalizePending = false } 
   if (speechSession) {
     try { speechSession.stop({ finalizePending }); } catch (_) { /* It was already stopped. */ }
   }
+  closeShortWordHelp();
 }
 
 elements.form.addEventListener("submit", (event) => { event.preventDefault(); checkAnswer(); });
@@ -1359,6 +1435,9 @@ document.querySelector("#clear-all").addEventListener("click", () => {
 });
 elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
 elements.voiceDockStop.addEventListener("click", () => stopVoice("Optional voice input stopped."));
+elements.voiceShortWordHelp.addEventListener("change", () => {
+  if (voiceActive || voiceStarting) setVoiceStatus("Single-word help changes take effect the next time voice starts.");
+});
 elements.voiceLanguage.addEventListener("change", () => {
   if (voiceActive || voiceStarting) stopVoice("Language changed. Start optional voice again when ready.");
   if (speechSession) setVoiceStatus("Language changed. Optional local voice is ready when you choose it.");

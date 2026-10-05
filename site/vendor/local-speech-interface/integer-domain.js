@@ -9,6 +9,17 @@ const DE_TENS = ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig"
 const VI_SMALL = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
 
 export const INTEGER_DOMAIN_LOCALES = Object.freeze(["en", "fr", "de", "vi"]);
+
+// Reviewed recognizer spellings of English unit words. Streaming recognizers
+// often transcribe an isolated "four" as "for" or "two" as "to". These are
+// opt-in, apply only to the final unit word, and a one-word homophone is
+// accepted only as a whole utterance, never from the tail of longer prose.
+export const ENGLISH_NUMBER_HOMOPHONES = Object.freeze({
+  1: Object.freeze(["won"]),
+  2: Object.freeze(["to", "too"]),
+  4: Object.freeze(["for", "fore"]),
+  8: Object.freeze(["ate"]),
+});
 export const INTEGER_DOMAIN_FORMS = Object.freeze(["bare", "answer-frame"]);
 
 function assertInteger(value) {
@@ -103,6 +114,16 @@ export function renderIntegerWords(value, locale) {
   throw new RangeError(`unsupported integer locale: ${locale}`);
 }
 
+function homophoneVariants(value, locale) {
+  if (locale !== "en") return [];
+  const aliases = ENGLISH_NUMBER_HOMOPHONES[value % 10];
+  if (!aliases || (value % 100 >= 10 && value % 100 < 20)) return [];
+  return wordVariants(value, locale).flatMap((words) => {
+    const tokens = words.split(" ");
+    return aliases.map((alias) => [...tokens.slice(0, -1), alias].join(" "));
+  });
+}
+
 function wordVariants(value, locale) {
   const canonical = renderIntegerWords(value, locale);
   if (locale === "en" && value >= 100 && value % 100) return [canonical, english(value, true)];
@@ -119,7 +140,7 @@ const ANSWER_FRAMES = Object.freeze({
   vi: Object.freeze(["câu trả lời là"]),
 });
 
-export function integerDomain({ min = 0, max = 999, locales = INTEGER_DOMAIN_LOCALES, forms = INTEGER_DOMAIN_FORMS } = {}) {
+export function integerDomain({ min = 0, max = 999, locales = INTEGER_DOMAIN_LOCALES, forms = INTEGER_DOMAIN_FORMS, homophones = false } = {}) {
   assertInteger(min);
   assertInteger(max);
   if (min > max) throw new RangeError("integer domain min must not exceed max");
@@ -138,6 +159,15 @@ export function integerDomain({ min = 0, max = 999, locales = INTEGER_DOMAIN_LOC
       if (selectedForms.includes("answer-frame")) {
         for (const frame of ANSWER_FRAMES[locale]) {
           for (const surface of surfaces) entries.push({ locale, surface: `${frame} ${surface}`, value, canonicalForm: String(value) });
+        }
+      }
+      if (homophones) {
+        for (const surface of homophoneVariants(value, locale)) {
+          const exactOnly = !surface.includes(" ");
+          if (selectedForms.includes("bare")) entries.push({ locale, surface, value, canonicalForm: String(value), exactOnly });
+          if (selectedForms.includes("answer-frame")) {
+            for (const frame of ANSWER_FRAMES[locale]) entries.push({ locale, surface: `${frame} ${surface}`, value, canonicalForm: String(value) });
+          }
         }
       }
     }

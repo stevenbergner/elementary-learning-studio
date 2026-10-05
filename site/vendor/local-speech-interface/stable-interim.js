@@ -9,8 +9,11 @@ function requireKey(value, name) {
 
 /**
  * Promotes a narrow, unchanged interim interpretation after a bounded delay.
- * The consumer chooses which candidates are safe; a later final result for
- * the same utterance can then be recognized as already handled.
+ *
+ * The recognizer remains the source of transcript evidence. Consumers decide
+ * which interim interpretations are safe enough to offer as candidates. A
+ * later final result for the same utterance can then be recognized as already
+ * handled, preventing a provisional action from firing twice.
  */
 export class StableInterimCommitter {
   #delayMs;
@@ -47,12 +50,19 @@ export class StableInterimCommitter {
     if (!Number.isFinite(delayMs) || delayMs < 0) throw new RangeError("delayMs must be a non-negative finite number");
 
     if (this.#pending?.utteranceKey === utteranceKey && this.#pending.candidateKey === candidateKey) {
+      // Repeated evidence for the same meaning strengthens rather than delays
+      // the boundary. Keep the original deadline but retain the newest text.
       this.#pending.evidence = evidence;
       return false;
     }
 
     this.cancel();
-    const pending = { utteranceKey, candidateKey, evidence, timer: null };
+    const pending = {
+      utteranceKey,
+      candidateKey,
+      evidence,
+      timer: null,
+    };
     pending.timer = this.#setTimer(() => {
       if (this.#pending !== pending) return;
       this.#pending = null;

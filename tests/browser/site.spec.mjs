@@ -1087,3 +1087,159 @@ test("never falls back to an online recognizer when a local pack is unavailable"
   await expect(page.locator("#voice-status")).toContainText("keyboard and touch still work");
   await expect.poll(() => page.evaluate(() => window.__recognitionStarted)).toBe(false);
 });
+
+
+test.describe("branch and commit previews", () => {
+  // Storage isolation is under test here; the service worker is covered by
+  // tests/preview-scope.test.mjs and would bypass the routed preview path.
+  test.use({ serviceWorkers: "block" });
+
+  test("a branch preview keeps its own learner storage apart from the published studio", async ({ page }) => {
+    const store = (name) => JSON.stringify({
+      version: 2,
+      profiles: [{ id: `id-${name}`, name, createdAt: "2026-10-05T00:00:00.000Z" }],
+      sessions: [],
+      lastProfileId: null,
+      legacy: null,
+    });
+    // Serve the same build under /b/demo/ the way a Pages preview would.
+    await page.route("**/b/demo/**", async (route) => {
+      const response = await route.fetch({ url: route.request().url().replace("/b/demo/", "/") });
+      await route.fulfill({ response });
+    });
+
+    await page.goto("/");
+    await page.evaluate((value) => localStorage.setItem("elementary-learning-studio-progress-v2", value), store("Published"));
+    await page.reload();
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Published");
+
+    await page.goto("/b/demo/");
+    await expect(page.locator("#learner-name")).toBeVisible();
+    await expect(page.locator("#known-learners option")).toHaveCount(0);
+
+    await page.evaluate((value) => localStorage.setItem("elementary-learning-studio-progress-v2:preview:b/demo", value), store("Preview"));
+    await page.reload();
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Preview");
+
+    await page.goto("/");
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Published");
+    await expect(page.locator("#known-learners option")).toHaveCount(1);
+  });
+});
+
+
+test.describe("opt-in single-word help", () => {
+  // The carrier request must reach the routed fake, not the service worker.
+  test.use({ serviceWorkers: "block" });
+
+  // A 16 kHz mono 16-bit WAV of quiet noise stands in for the spoken carrier.
+  function carrierWav() {
+    const samples = 4800;
+    const buffer = Buffer.alloc(44 + samples * 2);
+    buffer.write("RIFF", 0); buffer.writeUInt32LE(36 + samples * 2, 4); buffer.write("WAVE", 8);
+    buffer.write("fmt ", 12); buffer.writeUInt32LE(16, 16); buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(1, 22);
+    buffer.writeUInt32LE(16000, 24); buffer.writeUInt32LE(32000, 28); buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34);
+    buffer.write("data", 36); buffer.writeUInt32LE(samples * 2, 40);
+    for (let i = 0; i < samples; i += 1) buffer.writeInt16LE(Math.round((Math.random() * 2 - 1) * 2000), 44 + i * 2);
+    return buffer;
+  }
+
+  async function installFakes(page) {
+    await page.addInitScript(() => {
+      class FakeRecognition extends EventTarget {
+        static async available() { return "available"; }
+        static async install() { return true; }
+        constructor() {
+          super();
+          this.processLocally = false;
+          window.__voiceRecognition = this;
+          window.__startArguments = [];
+          window.__stops = 0;
+        }
+        start(track) {
+          window.__startArguments.push(track ? track.kind : null);
+          this.dispatchEvent(new Event("audiostart"));
+        }
+        stop() {
+          window.__stops += 1;
+        }
+        abort() {
+          this.dispatchEvent(new Event("audioend"));
+          this.dispatchEvent(new Event("end"));
+        }
+        emitResult(transcript, isFinal) {
+          const result = [{ transcript, confidence: 0.8 }];
+          result.isFinal = isFinal;
+          const event = new Event("result");
+          Object.defineProperties(event, { resultIndex: { value: 0 }, results: { value: [result] } });
+          this.dispatchEvent(event);
+        }
+      }
+      window.SpeechRecognition = FakeRecognition;
+      window.webkitSpeechRecognition = undefined;
+      // A controllable "microphone": an oscillator whose loudness the test sets.
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          async getUserMedia() {
+            const context = new AudioContext();
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            gain.gain.value = 0.002;
+            oscillator.connect(gain);
+            const destination = context.createMediaStreamDestination();
+            gain.connect(destination);
+            oscillator.start();
+            window.__micGain = gain;
+            return destination.stream;
+          },
+        },
+      });
+    });
+  }
+
+  test("adds the carrier after a silent lone word and enters the released number", async ({ page, browserName }) => {
+    test.skip(browserName === "webkit", "WebKit's headless Web Audio clock does not advance reliably without output");
+    await installFakes(page);
+    await page.route("**/audio/speech-carrier-en.wav", (route) => route.fulfill({ body: carrierWav(), contentType: "audio/wav" }));
+    await page.reload();
+    await page.locator(".voice-options summary").click();
+    await page.locator("#voice-short-word-help").check();
+    await page.getByRole("button", { name: /Start.*voice/ }).click();
+    await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__startArguments.at(-1))).toBe("audio");
+    await expect(page.locator("#voice-privacy")).toContainText("routes the microphone to Firefox locally");
+
+    await page.waitForTimeout(500);
+    await page.evaluate(() => { window.__micGain.gain.value = 0.3; });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { window.__micGain.gain.value = 0.002; });
+    await expect(page.locator("#voice-trace")).toContainText("added the built-in “okay”", { timeout: 3_000 });
+
+    // Text committed by the carrier is a complete turn: it is delivered at
+    // once, without stopping the recognizer. Firefox needs a few hundred
+    // milliseconds to decode the carrier before it can commit the word.
+    await page.waitForTimeout(400);
+    await page.evaluate(() => window.__voiceRecognition.emitResult("four", false));
+    await expect(page.locator("#answer")).toHaveValue("4");
+    expect(await page.evaluate(() => window.__stops)).toBe(0);
+    // Firefox's later final repeats the word with the carrier; it is not new
+    // evidence and must not act again.
+    await page.evaluate(() => window.__voiceRecognition.emitResult("four ok", true));
+    await expect(page.locator("#voice-trace")).toContainText("returned only the carrier");
+    await expect(page.locator("#answer")).toHaveValue("4");
+  });
+
+  test("falls back to the browser's own capture when the carrier is missing", async ({ page }) => {
+    await installFakes(page);
+    await page.route("**/audio/speech-carrier-en.wav", (route) => route.fulfill({ status: 404, body: "" }));
+    await page.reload();
+    await page.locator(".voice-options summary").click();
+    await page.locator("#voice-short-word-help").check();
+    await page.getByRole("button", { name: /Start.*voice/ }).click();
+    await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__startArguments.at(-1))).toBe(null);
+    await expect(page.locator("#voice-privacy")).toContainText("studio receives text");
+    await expect(page.locator("#voice-trace")).toContainText("single-word help unavailable");
+  });
+});

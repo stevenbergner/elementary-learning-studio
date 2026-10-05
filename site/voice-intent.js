@@ -10,7 +10,9 @@ const GRID_CONTROL_OPERATIONS = Object.freeze(["grid.up", "grid.down", "grid.lef
 const EXACT_COMMAND_FLUSH_MS = 500;
 const COMMAND_BOOSTS = Object.freeze({ stop: 6, check: 7, next: 10, skip: 6 });
 
-const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"] });
+// Reviewed English homophones ("for", "to", "ate", "won") are accepted as a
+// whole utterance or inside a number phrase, never from the end of prose.
+const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"], homophones: true });
 
 const commandSurfaces = {
   en: {

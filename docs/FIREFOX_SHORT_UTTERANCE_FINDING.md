@@ -81,3 +81,79 @@ The preferable long-term solution is upstream: Firefox should surface the
 recognizer's reliable utterance boundary so every site does not need to invent
 one.
 
+
+## Update, October 5, 2026: root cause and an opt-in fix
+
+### Root cause in Firefox's source
+
+Reading Firefox's on-device recognition code (`SpeechRecognitionParent.cpp`,
+`SpeechRecognitionBackend.cpp`, `models.yaml`) explains the finding above:
+
+- English uses `realtime_eou_120m-v1`, a streaming transducer with an
+  end-of-utterance (`<EOU>`) token. Committed words go out as interim results;
+  a final result is emitted only at `<EOU>`.
+- Firefox's own comment on `media.webspeech.recognition.endpoint_blank_ms`
+  says a transducer withholds an utterance's trailing word until the next one
+  starts. The blank-run fallback that would release it applies only to models
+  without `<EOU>`, so not to English.
+- A lone word is that trailing word. If the model emits no `<EOU>` after it, the
+  page sees nothing until later speech commits it.
+- `soundstart`/`soundend` come from a generic audibility monitor, which room
+  noise keeps open.
+- Phrase hints (`SpeechRecognitionPhrase`) reach the recognition process but
+  are not used by the engine.
+
+The full read, with upstream suggestions, is in LSI's
+`docs/FIREFOX_ENDPOINTING_SOURCE_READ_2026_10_05.md`.
+
+### Measurements against the real recognizer
+
+Setup:
+- Firefox Nightly 159, headless, in a scratch profile with the English model.
+- Synthetic macOS-voice fixtures played through a real `MediaStreamTrack`.
+- An optional brown-noise bed at about −45 dBFS standing in for room noise.
+- Driven over WebDriver BiDi; no microphone, and nothing leaves the machine.
+
+| Condition | Result |
+| --- | --- |
+| Lone words, no stop, noise bed | no interim text for any lone word; 13/18 finalized, mostly late |
+| `stop()` 250, 450, or 800 ms after the word | mostly `nomatch` at every delay |
+| Spoken “okay” played into the recognizer 250 ms after the word | 12/12 words committed, median 766 ms |
+| Hum, noise burst, or tone instead of speech | no improvement |
+| Full LSI pipeline without the carrier, noise bed | 4/14 single words and phrases |
+| Full LSI pipeline with the carrier (final design), noise bed | single words and phrases 21/21; two words 0.6–1.2 s apart 6/6 |
+| Same, clean silence | single words and phrases 20/21; two words 0.6–1.2 s apart 6/6 |
+| Stress cases, both conditions | two words 0.35 s apart 3/6; three words 0.9 s apart 4/6 |
+
+With the carrier, the median time from the end of a word to its final text was
+about 0.8 s (p90 about 1.0 s).
+
+The remaining failures are at the edge of the recognizer:
+- In one traced three-word failure, the model never decoded the middle word.
+- With a 0.35-second gap, the next word can start while the carrier is still
+  playing.
+
+### What ELS now does
+
+- Accepts reviewed English homophones (“for” 4, “to”/“too” 2, “ate” 8, “won”
+  1) as a whole utterance or inside a number phrase, never from the end of
+  prose. The lab's “The answer is four.” was transcribed “the answer is for”.
+- Offers **Help Firefox finish single words** (English, opt-in, off by
+  default) in the folded voice options; see
+  [Input methods and privacy](INPUT_METHODS.md#opt-in-single-word-help). The
+  page opens the microphone itself, detects the end of speech by loudness only,
+  and plays a built-in spoken “okay” into the recognizer, never the speakers.
+  LSI delivers the released word without stopping the recognizer and removes
+  the carrier from the text.
+- Reports phrase hints in the trace as passed to the browser, not applied.
+
+### Still open
+
+- Testing with real children's voices and microphones.
+- Which carrier recording may ship with the public site. It is generated
+  locally by `scripts/generate_speech_carrier.sh` and is not committed; without
+  it the option reports itself unavailable.
+- Upstream: release the trailing word after a blank run for `<EOU>` models too,
+  feed already-captured audio before finalizing on `stop()`, wire the bundled
+  voice-activity detector to `speechstart`/`speechend`, and use or refuse
+  phrase hints.

@@ -47,8 +47,14 @@ export function compileSurfaceDomain({ id, locales, entries, normalize = normali
     if (existing && existing.valueKey !== valueKey) {
       throw new Error(`domain collision for ${locale} surface ${JSON.stringify(normalized)}: ${existing.canonicalForm} and ${entry.canonicalForm}`);
     }
+    // An exact-only surface (for example a one-word homophone such as "for")
+    // is accepted as a whole utterance but never pulled from the tail of
+    // longer prose. A surface stays exact-only only while every entry that
+    // produced it is exact-only.
+    const exactOnly = entry.exactOnly === true;
     if (existing) {
       existing.surfaces.add(surface);
+      existing.exactOnly &&= exactOnly;
       continue;
     }
     table.set(normalized, {
@@ -56,6 +62,7 @@ export function compileSurfaceDomain({ id, locales, entries, normalize = normali
       valueKey,
       canonicalForm: nonEmptyText(entry.canonicalForm ?? String(entry.value), "entry canonicalForm"),
       surfaces: new Set([surface]),
+      exactOnly,
     });
   }
 
@@ -90,7 +97,7 @@ export function compileSurfaceDomain({ id, locales, entries, normalize = normali
     for (let start = 0; start < tokens.length; start += 1) {
       const normalized = tokens.slice(start).join(" ");
       const match = table.get(normalized);
-      if (!match) continue;
+      if (!match || (start > 0 && match.exactOnly)) continue;
       return Object.freeze({
         kind: "one",
         interpretation: Object.freeze({

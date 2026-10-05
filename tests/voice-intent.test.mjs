@@ -196,3 +196,15 @@ test("keeps recognized meaning separate from current permission", () => {
   assert.equal(result.permitted, false);
   assert.equal(result.permission, "answer-unavailable");
 });
+
+test("accepts reviewed English number homophones without reading numbers into prose", () => {
+  const context = { answerEnabled: true, locale: "en" };
+  assert.equal(resolveVoiceIntent({ transcript: "for" }, context).value, 4);
+  assert.equal(resolveVoiceIntent({ transcript: "the answer is for" }, context).value, 4);
+  assert.equal(resolveVoiceIntent({ transcript: "twenty to" }, context).value, 22);
+  assert.equal(resolveVoiceIntent({ transcript: "ate" }, context).value, 8);
+  assert.equal(resolveVoiceIntent({ transcript: "I want to" }, context).kind, "unmatched");
+  assert.equal(resolveVoiceIntent({ transcript: "this one is for" }, context).kind, "unmatched");
+  assert.equal(resolveVoiceIntent({ transcript: "next to the next" }, context).kind, "unmatched");
+  assert.equal(resolveVoiceIntent({ transcript: "for", }, { ...context, locale: "fr" }).kind, "unmatched");
+});
