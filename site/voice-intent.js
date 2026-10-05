@@ -25,6 +25,16 @@ const commands = new Map([
   ["next", "next"], ["suivant", "next"], ["weiter", "next"], ["tiếp theo", "next"],
 ]);
 
+const answerFrames = [
+  /^the answer is (.+)$/u,
+  /^answer is (.+)$/u,
+  /^la réponse est (.+)$/u,
+  /^la reponse est (.+)$/u,
+  /^die antwort ist (.+)$/u,
+  /^antwort ist (.+)$/u,
+  /^câu trả lời là (.+)$/u,
+];
+
 export function normalizeSpeechText(value) {
   return String(value || "").toLocaleLowerCase().trim().replace(/[.,!?;:]/gu, "").replace(/[‐‑‒–—-]/gu, " ").replace(/\s+/g, " ");
 }
@@ -126,7 +136,9 @@ function parseVietnamese(tokens) {
 }
 
 export function spokenNumber(transcript) {
-  const normalized = normalizeSpeechText(transcript);
+  const normalizedTranscript = normalizeSpeechText(transcript);
+  const framed = answerFrames.map((pattern) => normalizedTranscript.match(pattern)?.[1]).find(Boolean);
+  const normalized = framed || normalizedTranscript;
   if (/^\d{1,3}$/.test(normalized)) return Number(normalized);
   const tokens = normalized.split(" ");
   const parsers = [parseEnglish(tokens), parseFrench(tokens), parseGermanCompact(tokens.join("")), parseVietnamese(tokens)];

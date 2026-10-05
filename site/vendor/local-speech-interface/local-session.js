@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import { createSpeechEvent } from "./speech-event.js";
 import { assertLocalOnlyRecognition } from "./local-policy.js";
+import { FIREFOX_WEB_SPEECH_CAPABILITIES } from "./capabilities.js";
 
 const DEFAULT_ADAPTIVE_FLUSH = Object.freeze({
   defaultMs: 900,
@@ -74,7 +75,15 @@ export class LocalSpeechSession extends EventTarget {
   #event(type, payload = {}) {
     const event = createSpeechEvent({
       sequence: this.#sequence++, type, adapter: "firefox-web-speech", locale: this.#locale,
-      audioSource: "microphone", localProcessing: "verified", payload,
+      audioSource: "microphone", localProcessing: "verified", payload: {
+        ...payload,
+        recognizer: {
+          requestedLocale: this.#locale,
+          languageSelection: "explicit",
+          detectedLocale: null,
+          capabilities: FIREFOX_WEB_SPEECH_CAPABILITIES,
+        },
+      },
     });
     this.dispatchEvent(new CustomEvent("speech", { detail: event }));
   }

@@ -284,7 +284,14 @@ test("shows local language-pack progress and starts only after the browser confi
   await expect(page.locator("#voice-debug-state")).toContainText("events in memory");
   const speechEvents = await page.evaluate(() => window.__speechEvents);
   expect(speechEvents.some((event) => event.type === "recognition.interim")).toBeTruthy();
-  expect(speechEvents.some((event) => event.type === "recognition.final" && event.payload.transcript === "forty two")).toBeTruthy();
+  const finalRecognition = speechEvents.find((event) => event.type === "recognition.final" && event.payload.transcript === "forty two");
+  expect(finalRecognition).toBeTruthy();
+  expect(finalRecognition.payload.recognizer).toMatchObject({
+    requestedLocale: "en-US",
+    languageSelection: "explicit",
+    detectedLocale: null,
+    capabilities: { transcript: true, alternatives: true, wordTiming: false },
+  });
   expect(speechEvents.some((event) => event.type === "intent.proposed" && event.payload.interpretation.value === 42)).toBeTruthy();
   expect(speechEvents.every((event) => event.protocol === "local-speech-interface/v0.1")).toBeTruthy();
   expect(speechEvents.every((event) => event.privacy.networkUsed === false)).toBeTruthy();

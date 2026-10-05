@@ -104,7 +104,7 @@ and Firefox displayed its own consent message:
 The user continued the model setup and granted the isolated Nightly profile
 microphone access. Firefox then reported the English local pack ready. A live
 test produced `audiostart`, interim-result, final-result, and `audioend` events.
-Firefox initially retained the last word until later speech. LSI 0.2.0's
+Firefox initially retained the last word until later speech. LSI 0.4.0's
 adaptive 650–1400 ms graceful-finalization policy was then tested in the live
 microphone session: the retained word appeared after the speaker paused,
 without another utterance, and the user described the resulting delay as

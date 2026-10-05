@@ -10,6 +10,15 @@ test("parses the supported number grammars without a language model", () => {
   assert.equal(spokenNumber("một trăm lẻ năm"), 105);
 });
 
+test("accepts narrow multilingual answer frames without opening the grammar", () => {
+  assert.equal(spokenNumber("The answer is forty-two."), 42);
+  assert.equal(spokenNumber("La réponse est quarante-deux."), 42);
+  assert.equal(spokenNumber("Die Antwort ist 42."), 42);
+  assert.equal(spokenNumber("Câu trả lời là bốn mươi hai."), 42);
+  assert.equal(spokenNumber("Bitte trage 42 ein."), null);
+  assert.equal(resolveVoiceIntent({ transcript: "Die Antwort ist 42." }).value, 42);
+});
+
 test("uses the recognizer's primary valid number even when lower alternatives differ", () => {
   const result = resolveVoiceIntent({
     transcript: "forty two",

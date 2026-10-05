@@ -1,11 +1,12 @@
 # Local Speech Interface browser snapshot
 
 This directory vendors the browser-facing modules from Local Speech Interface
-0.2.0, revision `96d5564`.
+0.4.0, revision `5392aef`.
 
 - Source repository at integration time: sibling `local-speech-interface`
-- Covered files: `src/browser/local-session.js`, `src/local-policy.js`,
-  `src/speech-event.js`, `src/dom-bridge.js`, and the package export surface
+- Covered files: `src/browser/local-session.js`, `src/capabilities.js`,
+  `src/local-policy.js`, `src/speech-event.js`, `src/dom-bridge.js`, and the
+  package export surface
 - License: Mozilla Public License 2.0
 - Runtime dependencies: none
 
