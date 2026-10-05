@@ -7,6 +7,7 @@ import { integerDomain } from "./vendor/local-speech-interface/integer-domain.js
 import { proposePageControls } from "./vendor/local-speech-interface/page-control.js";
 
 const GRID_CONTROL_OPERATIONS = Object.freeze(["grid.up", "grid.down", "grid.left", "grid.right"]);
+const EXACT_COMMAND_FLUSH_MS = 500;
 
 const numberDomain = integerDomain({ min: 0, max: 999, locales: ["en", "fr", "de", "vi"] });
 
@@ -14,7 +15,11 @@ const commandSurfaces = {
   en: {
     stop: ["stop", "stop listening", "stop voice input"],
     check: ["check", "enter", "done", "i'm done", "check my answer", "that's my answer"],
-    next: ["next", "next question", "go on", "continue"],
+    // Firefox can coalesce a quick retry ("next" followed by "done") into one
+    // final result. These fully covered submit/navigation pairs have the same
+    // safe effect as next: validate the present answer, then advance only when
+    // it is correct. Commands embedded in any other prose remain unmatched.
+    next: ["next", "next question", "go on", "continue", "next done", "done next", "next check", "check next"],
     skip: ["skip", "skip question", "skip this question"],
   },
   fr: {
@@ -203,4 +208,17 @@ export function resolveVoiceIntent(
     permission: "unrecognized",
     action: "none; no number or available command matched",
   };
+}
+
+export function commandAwareInterimFlushDelay(
+  { transcript = "", alternatives = [], adaptiveFlushMs } = {},
+  context = {},
+) {
+  if (!Number.isFinite(adaptiveFlushMs) || adaptiveFlushMs < 0) {
+    throw new RangeError("adaptiveFlushMs must be a non-negative finite number");
+  }
+  const preview = resolveVoiceIntent({ transcript, alternatives }, context);
+  return preview.kind === "command"
+    ? Math.min(adaptiveFlushMs, EXACT_COMMAND_FLUSH_MS)
+    : adaptiveFlushMs;
 }

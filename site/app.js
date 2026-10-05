@@ -3,7 +3,7 @@ import {
   createSpeechEvent,
   dispatchSpeechEvent,
 } from "./vendor/local-speech-interface/index.js";
-import { resolveVoiceIntent } from "./voice-intent.js";
+import { commandAwareInterimFlushDelay, resolveVoiceIntent } from "./voice-intent.js";
 import { CHILD_SUDOKU_PUZZLES, checkSudokuValues } from "./sudoku.js";
 
 const SET_SIZE = 10;
@@ -363,7 +363,8 @@ function renderQuestion() {
   elements.hintButton.hidden = false;
   readyForNext = false;
   window.setTimeout(() => {
-    if (document.activeElement === focusOwner || document.activeElement === document.body) {
+    if (activeAnswerTarget.kind === "math"
+      && (document.activeElement === focusOwner || document.activeElement === document.body)) {
       elements.answer.focus({ preventScroll: true });
     }
   }, 60);
@@ -1012,6 +1013,7 @@ function createSpeechSession() {
     speechSession = new LocalSpeechSession({
       locale: elements.voiceLanguage.value,
       Recognition: RecognitionConstructor,
+      interimFlushDelay: (evidence) => commandAwareInterimFlushDelay(evidence, voiceIntentContext()),
     });
     speechSession.addEventListener("speech", ({ detail }) => handleSpeechSessionEvent(detail));
     return true;

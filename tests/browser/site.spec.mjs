@@ -452,6 +452,72 @@ test("flushes a retained final word on an adaptive utterance boundary", async ({
 });
 
 
+test("uses a short exact-command deadline without acting on continuing commentary", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRecognition extends EventTarget {
+      static async available() { return "available"; }
+      static async install() { return true; }
+      constructor() {
+        super();
+        this.processLocally = false;
+        window.__voiceRecognition = this;
+      }
+      start() { this.dispatchEvent(new Event("audiostart")); }
+      abort() {
+        this.dispatchEvent(new Event("audioend"));
+        this.dispatchEvent(new Event("end"));
+      }
+      stop() {}
+      emitResult(transcript, isFinal) {
+        const result = [{ transcript, confidence: 0.9 }];
+        result.isFinal = isFinal;
+        const event = new Event("result");
+        Object.defineProperties(event, {
+          resultIndex: { value: 0 },
+          results: { value: [result] },
+        });
+        this.dispatchEvent(event);
+      }
+    }
+    window.SpeechRecognition = FakeRecognition;
+    window.webkitSpeechRecognition = undefined;
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    window.__speechEvents = [];
+    window.addEventListener("local-speech-interface:event", (event) => window.__speechEvents.push(event.detail));
+  });
+  await page.getByRole("button", { name: /Start.*voice/ }).click();
+
+  await page.evaluate(() => window.__voiceRecognition.emitResult("next", false));
+  const exact = await page.evaluate(() => window.__speechEvents.findLast((event) => event.type === "recognition.interim"));
+  expect(exact.payload.timing).toMatchObject({
+    adaptiveFlushMs: 500,
+    baselineAdaptiveFlushMs: 900,
+    flushPolicy: "consumer-selected",
+  });
+
+  await page.evaluate(() => window.__voiceRecognition.emitResult("next okay", false));
+  const continued = await page.evaluate(() => window.__speechEvents.findLast((event) => event.type === "recognition.interim"));
+  expect(continued.payload.timing.adaptiveFlushMs).toBeGreaterThan(500);
+  expect(continued.payload.timing.flushPolicy).toBe("adaptive-cadence");
+
+  const progress = await page.locator("#progress-label").innerText();
+  await page.evaluate(() => window.__voiceRecognition.emitResult(
+    "next okay so next and done are really not robust",
+    true,
+  ));
+  await expect(page.locator("#progress-label")).toHaveText(progress);
+  await expect(page.locator("#voice-status")).toContainText("did not match");
+
+  const a = Number(await page.locator("#operand-a").innerText());
+  const b = Number(await page.locator("#operand-b").innerText());
+  await page.locator("#answer").fill(String(a + b));
+  await page.evaluate(() => window.__voiceRecognition.emitResult("next done", true));
+  await expect(page.locator("#progress-label")).not.toHaveText(progress);
+});
+
+
 test("stops hidden-page capture while draining the word already heard", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeRecognition extends EventTarget {

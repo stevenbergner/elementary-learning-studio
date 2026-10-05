@@ -43,6 +43,7 @@ export class LocalSpeechSession extends EventTarget {
   #finishingUtterance = false;
   #flushOnSpeechEnd;
   #adaptiveFlush;
+  #interimFlushDelay;
   #finalizationGraceMs;
   #flushTimer = null;
   #lastResultAt = null;
@@ -61,6 +62,7 @@ export class LocalSpeechSession extends EventTarget {
     Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition,
     flushOnSpeechEnd = true,
     adaptiveFlush = DEFAULT_ADAPTIVE_FLUSH,
+    interimFlushDelay = null,
     finalizationGraceMs = DEFAULT_FINALIZATION_GRACE_MS,
     phrases = [],
     Phrase = globalThis.SpeechRecognitionPhrase,
@@ -70,6 +72,10 @@ export class LocalSpeechSession extends EventTarget {
     this.#Recognition = Recognition;
     this.#flushOnSpeechEnd = flushOnSpeechEnd;
     this.#adaptiveFlush = adaptiveFlush;
+    if (interimFlushDelay !== null && typeof interimFlushDelay !== "function") {
+      throw new TypeError("interimFlushDelay must be a function or null");
+    }
+    this.#interimFlushDelay = interimFlushDelay;
     this.#finalizationGraceMs = finalizationGraceMs;
     const recognition = Recognition ? new Recognition() : null;
     this.#recognition = assertLocalOnlyRecognition(Recognition, recognition);
@@ -267,17 +273,36 @@ export class LocalSpeechSession extends EventTarget {
       this.#ensureResultUtterance();
       const receivedAtMs = monotonicNow();
       const adaptiveFlushMs = this.#observeResult(event.timeStamp);
+      let selectedFlushMs = adaptiveFlushMs;
+      let flushPolicy = "adaptive-cadence";
       let finalSeen = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
         finalSeen ||= result.isFinal;
         const alternatives = Array.from(result, (choice) => ({ text: choice.transcript.trim(), confidence: choice.confidence }));
+        if (!result.isFinal && this.#interimFlushDelay) {
+          const selected = this.#interimFlushDelay({
+            transcript: alternatives[0]?.text || "",
+            alternatives: Object.freeze(alternatives.map((choice) => Object.freeze({ ...choice }))),
+            adaptiveFlushMs,
+            locale: this.#locale,
+          });
+          if (selected !== null && selected !== undefined) {
+            if (!Number.isFinite(selected) || selected < 0) {
+              throw new RangeError("interimFlushDelay must return a non-negative finite number, null, or undefined");
+            }
+            selectedFlushMs = Math.round(selected);
+            flushPolicy = selectedFlushMs === adaptiveFlushMs ? "adaptive-cadence" : "consumer-selected";
+          }
+        }
         this.#event(result.isFinal ? "recognition.final" : "recognition.interim", {
           transcript: alternatives[0]?.text || "", alternatives, resultIndex: index,
           timing: {
             browserEventMs: event.timeStamp,
             receivedAtMs,
-            adaptiveFlushMs,
+            adaptiveFlushMs: selectedFlushMs,
+            baselineAdaptiveFlushMs: adaptiveFlushMs,
+            flushPolicy,
             sinceSpeechStartMs: this.#speechStartedAt === null ? null : Math.round(receivedAtMs - this.#speechStartedAt),
             sinceSpeechEndMs: this.#speechEndedAt === null ? null : Math.round(receivedAtMs - this.#speechEndedAt),
             sinceSoundStartMs: this.#soundStartedAt === null ? null : Math.round(receivedAtMs - this.#soundStartedAt),
@@ -293,7 +318,7 @@ export class LocalSpeechSession extends EventTarget {
         this.#utteranceFinalized = true;
         this.#clearFlushTimer();
       } else {
-        this.#scheduleFlush(adaptiveFlushMs, "adaptive-quiet-deadline");
+        this.#scheduleFlush(selectedFlushMs, "adaptive-quiet-deadline");
       }
     });
     this.#recognition.addEventListener("speechend", () => {

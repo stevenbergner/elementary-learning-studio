@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveVoiceIntent, spokenNumber } from "../site/voice-intent.js";
+import {
+  commandAwareInterimFlushDelay,
+  resolveVoiceIntent,
+  spokenNumber,
+} from "../site/voice-intent.js";
 import { INTEGER_DOMAIN_LOCALES, renderIntegerWords } from "../site/vendor/local-speech-interface/integer-domain.js";
 
 test("round-trips the complete generated 0–999 domain through the studio resolver", () => {
@@ -107,9 +111,29 @@ test("keeps commands exact and applies application state", () => {
   assert.equal(resolveVoiceIntent({ transcript: "dừng" }, { locale: "vi" }).intent, "stop");
   assert.equal(resolveVoiceIntent({ transcript: "prüfen" }, { locale: "en" }).kind, "unmatched");
   assert.equal(resolveVoiceIntent({ transcript: "go on" }, { locale: "en", readyForNext: true }).intent, "next");
+  assert.equal(resolveVoiceIntent({ transcript: "next done" }, { locale: "en", answerPresent: true }).intent, "next");
+  assert.equal(resolveVoiceIntent({ transcript: "next okay so next and done are really not robust" }, { locale: "en", answerPresent: true }).kind, "unmatched");
   assert.equal(resolveVoiceIntent({ transcript: "j'ai fini" }, { locale: "fr" }).intent, "check");
   assert.equal(resolveVoiceIntent({ transcript: "nächste frage" }, { locale: "de", readyForNext: true }).intent, "next");
   assert.equal(resolveVoiceIntent({ transcript: "xong rồi" }, { locale: "vi" }).intent, "check");
+});
+
+test("shortens finalization only while interim text is an exact command", () => {
+  const context = { answerPresent: true, locale: "en" };
+  assert.equal(commandAwareInterimFlushDelay({
+    transcript: "next", alternatives: [], adaptiveFlushMs: 1001,
+  }, context), 500);
+  assert.equal(commandAwareInterimFlushDelay({
+    transcript: "next okay", alternatives: [], adaptiveFlushMs: 650,
+  }, context), 650);
+  assert.equal(commandAwareInterimFlushDelay({
+    transcript: "eleven", alternatives: [], adaptiveFlushMs: 900,
+  }, context), 900);
+  assert.equal(commandAwareInterimFlushDelay({
+    transcript: "next okay so next and done are really not robust",
+    alternatives: [],
+    adaptiveFlushMs: 1133,
+  }, context), 1133);
 });
 
 test("recognizes skip while leaving its assessment semantics to the activity", () => {

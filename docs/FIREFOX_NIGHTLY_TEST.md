@@ -115,3 +115,24 @@ pleasant conversational pacing. Using the button stopped capture and returned
 the indicator to **Microphone off**. Numeric insertion, every spoken command,
 other languages, and disconnected-network operation still need live
 verification; do not report those as passing yet.
+
+### Captured command-turn follow-up
+
+A later live trace on the same machine separated recognizer behavior from
+studio policy. Firefox finalized `eight`, `next`, and `nine`; the studio
+accepted all three, and `next` checked the entered answer and advanced. On the
+next attempt, Firefox first exposed interim `next` but finalized the rapid
+retry as `next done`, which the earlier exact single-command grammar rejected.
+In a subsequent explanatory sentence, interim `next` expanded to `next okay`
+after 285 ms and then to ordinary commentary. Rejecting that longer utterance
+was correct: accepting a command merely because it occurs inside prose would
+make discussion capable of navigating the exercise.
+
+The resulting policy keeps final-only execution but uses two narrow recovery
+mechanisms. While the entire interim transcript is one reviewed command, ELS
+asks LSI to finalize after 500 ms rather than the normal adaptive 650–1400 ms;
+any continued text cancels that shorter timer. ELS also accepts the exact
+coalesced retry pairs `next done`, `done next`, `next check`, and `check next`
+as the existing check-and-advance operation. The captured explanatory sentence
+remains unmatched. Automated browser coverage replays both shapes so future
+timing work cannot make embedded commentary actionable.
