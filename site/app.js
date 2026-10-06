@@ -1,18 +1,38 @@
+import {
+  LocalSpeechSession,
+  StableInterimCommitter,
+  createSpeechEvent,
+  dispatchSpeechEvent,
+  openRecognitionInput,
+} from "./vendor/local-speech-interface/index.js";
+import {
+  commandAwareInterimFlushDelay,
+  commandPhraseHints,
+  resolveVoiceIntent,
+} from "./voice-intent.js";
+import { numberGrid } from "./number-grid.js";
+
 const SET_SIZE = 10;
+// The published studio keeps its original keys. A branch or commit preview
+// shares the browser origin, so it gets its own keys and never reads or
+// overwrites a family's real progress.
 // A branch or commit preview lives under /b/<branch>/ or /s/<sha>/ on the
-// same origin as the published studio. It returns "b/<branch>" or "s/<sha>",
-// and null for the published studio. sw.js carries an identical copy;
+// same origin as the published studio. sw.js carries an identical copy;
 // tests/preview-scope.test.mjs checks that both behave the same.
 function previewScope(pathname) {
   const match = /(?:^|\/)(b|s)\/([A-Za-z0-9._-]+)\//.exec(String(pathname));
   return match ? `${match[1]}/${match[2]}` : null;
 }
-// The published studio keeps its original keys. A preview shares the browser
-// origin, so it gets its own keys and never reads or overwrites real progress.
-const STORAGE_SUFFIX = previewScope(location.pathname) ? `:preview:${previewScope(location.pathname)}` : "";
+const PREVIEW_SCOPE = previewScope(globalThis.location?.pathname);
+const STORAGE_SUFFIX = PREVIEW_SCOPE ? `:preview:${PREVIEW_SCOPE}` : "";
 const STORAGE_KEY = `elementary-learning-studio-progress-v2${STORAGE_SUFFIX}`;
 const OLD_STORAGE_KEY = `elementary-learning-studio-progress-v1${STORAGE_SUFFIX}`;
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
+const VOICE_ADVANCE_DELAY_MS = 450;
+const VOICE_DEBUG_ENABLED_KEY = "els-voice-debug-enabled";
+const VOICE_DEBUG_BACKGROUND_KEY = "els-voice-debug-background";
+const SHORT_WORD_HELP_KEY = "els-short-word-help";
+const LOCAL_DEVELOPER_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 const operations = {
   addition: {
@@ -57,6 +77,38 @@ let readyForNext = false;
 let setStartedAt = null;
 let timerStartedAt = null;
 let lastSessionId = null;
+let speechSession = null;
+let RecognitionConstructor = null;
+let voiceActive = false;
+let voiceStarting = false;
+let voiceShouldRun = false;
+let voiceAudioActive = false;
+let voiceStartTimer = null;
+let voiceAdvanceTimer = null;
+let interimCommandCommitter = null;
+let recognitionInput = null;
+// Recorded in diagnostic exports so a trace shows whether the opt-in ran.
+let shortWordHelpState = { requested: false, active: false, detail: "not requested" };
+// A spoken carrier played only into the recognizer after the learner falls
+// silent, so Firefox commits a lone word it would otherwise hold back. The
+// recognizer writes it as "ok" or "okay"; LSI removes those tokens.
+// "oh" is the fragment left when a carrier is cut off by the next word.
+const SPEECH_CARRIER = Object.freeze({ url: "audio/speech-carrier-en.wav", tokens: Object.freeze(["ok", "okay", "oh"]) });
+const SHORT_WORD_METHOD_KEY = "els-short-word-method";
+// The published site uses the carrier; loopback developers can compare it with
+// finalizing at the page-detected silence (no carrier audio at all).
+function shortWordMethod() {
+  return localDeveloperMode() ? elements.voiceShortWordMethod.value : "carrier";
+}
+const VOICE_PRIVACY_BROWSER_CAPTURE = "Microphone audio is processed on this device. The studio receives text, does not record audio, and does not send the text or audio anywhere.";
+const VOICE_PRIVACY_PAGE_CAPTURE = "Single-word help is on. The studio routes the microphone to Firefox locally and computes loudness without retaining audio samples. It records, stores, and sends neither audio nor recognized text.";
+let soundSinceStableCommit = true;
+let speechEventSequence = 0;
+let activeAnswerTarget = Object.freeze({ kind: "math" });
+const VOICE_TRACE_LIMIT = 40;
+const VOICE_DIAGNOSTIC_LIMIT = 600;
+let voiceDiagnosticEvents = [];
+let voiceDiagnosticStartedAt = new Date().toISOString();
 
 const elements = Object.fromEntries(Object.entries({
   answer: "#answer", form: "#answer-form", check: "#check-answer", hintButton: "#show-hint", hint: "#hint-text",
@@ -66,11 +118,66 @@ const elements = Object.fromEntries(Object.entries({
   timingEnabled: "#timing-enabled", progressPanel: "#progress-panel", progressLearner: "#progress-learner",
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
+  voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
+  voiceAutoCheck: "#voice-auto-check", voicePointerFollow: "#voice-pointer-follow", voiceShortWordHelp: "#voice-short-word-help",
+  voiceAvailability: "#voice-availability", voicePrivacy: "#voice-privacy", voiceDownload: "#voice-download",
+  voiceDownloadLabel: "#voice-download-label", voiceSignal: "#voice-signal", voiceSignalLabel: "#voice-signal-label",
+  voiceSignalDetail: "#voice-signal-detail", voiceTarget: "#voice-target", voiceHeard: "#voice-heard", voiceDebug: "#voice-debug",
+  voiceDebugEnabled: "#voice-debug-enabled", voiceDebugOutput: "#voice-debug-output", voiceDebugState: "#voice-debug-state",
+  voiceDebugSummary: "#voice-debug-summary", voiceDebugExport: "#voice-debug-export",
+  voiceDebugClear: "#voice-debug-clear", voiceTrace: "#voice-trace",
+  voiceDebugBackground: "#voice-debug-background", voiceDebugBackgroundLabel: "#voice-debug-background-label",
+  voiceShortWordMethod: "#voice-short-word-method", voiceShortWordMethodLabel: "#voice-short-word-method-label",
+  voiceDock: "#voice-dock", voiceDockStatus: "#voice-dock-status", voiceDockHeard: "#voice-dock-heard",
+  voiceDockTarget: "#voice-dock-target", voiceDockStop: "#voice-dock-stop",
+  sudokuGrid: "#sudoku-grid",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function makeId() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 function freshStore() { return { version: 2, profiles: [], sessions: [], lastProfileId: null, legacy: null }; }
+function localDeveloperMode() { return LOCAL_DEVELOPER_HOSTS.has(location.hostname); }
+function sessionPreference(key, fallback = false) {
+  try {
+    const stored = sessionStorage.getItem(key);
+    return stored === null ? fallback : stored === "true";
+  } catch (_) {
+    return fallback;
+  }
+}
+function rememberSessionPreference(key, value) {
+  try { sessionStorage.setItem(key, String(Boolean(value))); } catch (_) { /* A private tab may deny storage. */ }
+}
+
+
+function setVoiceStatus(message) {
+  elements.voiceStatus.textContent = message;
+  elements.voiceDockStatus.textContent = message;
+}
+
+function setVoiceHeard(message) {
+  elements.voiceHeard.textContent = message;
+  elements.voiceDockHeard.textContent = message;
+}
+
+function setVoiceTarget(message) {
+  elements.voiceTarget.textContent = message;
+  elements.voiceDockTarget.textContent = message;
+}
+
+function showVoiceDock(show) {
+  elements.voiceDock.hidden = !show;
+  document.body.classList.toggle("has-voice-dock", show);
+}
+
+function setActiveAnswerTarget(target) {
+  activeAnswerTarget = Object.freeze({ ...target });
+  setVoiceTarget(target.kind === "sudoku"
+    ? `Current speech target: number grid, row ${Math.floor(target.index / 4) + 1}, column ${(target.index % 4) + 1}.`
+    : target.kind === "math"
+      ? "Current speech target: arithmetic answer."
+      : "No active answer target. Select an exercise field or grid cell.");
+}
 
 function readStore() {
   try {
@@ -136,6 +243,7 @@ function makeSet(kind) {
 function currentQuestion() { return questions[index]; }
 
 function startSet(kind = operation) {
+  clearTimeout(voiceAdvanceTimer);
   operation = kind;
   questions = makeSet(operation);
   index = 0;
@@ -156,7 +264,10 @@ function startSet(kind = operation) {
 }
 
 function renderQuestion() {
+  clearTimeout(voiceAdvanceTimer);
+  setActiveAnswerTarget({ kind: "math" });
   const question = currentQuestion();
+  const focusOwner = document.activeElement;
   elements.a.textContent = question.a;
   elements.b.textContent = question.b;
   elements.operator.textContent = operations[operation].symbol;
@@ -172,7 +283,12 @@ function renderQuestion() {
   elements.check.textContent = "Check my answer";
   elements.hintButton.hidden = false;
   readyForNext = false;
-  window.setTimeout(() => elements.answer.focus({ preventScroll: true }), 60);
+  window.setTimeout(() => {
+    if (activeAnswerTarget.kind === "math"
+      && (document.activeElement === focusOwner || document.activeElement === document.body)) {
+      elements.answer.focus({ preventScroll: true });
+    }
+  }, 60);
 }
 
 function checkAnswer() {
@@ -206,9 +322,13 @@ function checkAnswer() {
   }
 }
 
-function nextQuestion() { index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet(); }
+function nextQuestion() {
+  clearTimeout(voiceAdvanceTimer);
+  index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet();
+}
 
 function finishSet() {
+  setActiveAnswerTarget({ kind: "none" });
   const profile = ensureProfile();
   const items = questions.map((question) => ({
     a: question.a, b: question.b, answer: question.answer,
@@ -392,7 +512,825 @@ function downloadAward() {
   download(svg, `${safeFilename(session.learner)}-practice-award.svg`, "image/svg+xml;charset=utf-8");
 }
 
+function summarizeVoiceDiagnostics() {
+  const utterances = new Map();
+  let decoderFlushes = 0;
+  let recognitionRestarts = 0;
+  let acceptedActions = 0;
+  let rejectedActions = 0;
+  let errors = 0;
+  let carrierInjections = 0;
+
+  voiceDiagnosticEvents.forEach((event) => {
+    if (event.payload?.state === "carrier-injected") carrierInjections += 1;
+    const lifecycle = event.payload?.lifecycle;
+    if (lifecycle?.utterance > 0) {
+      const key = `${lifecycle.recognitionCycle}:${lifecycle.utterance}`;
+      if (!utterances.has(key)) utterances.set(key, { started: false, ended: false, interims: 0, finals: 0 });
+      const utterance = utterances.get(key);
+      if (["sound-started", "speech-started"].includes(event.payload.state)) utterance.started = true;
+      if (["sound-ended", "speech-ended"].includes(event.payload.state)) utterance.ended = true;
+      if (event.type === "recognition.interim") {
+        utterance.started = true;
+        utterance.interims += 1;
+      }
+      if (event.type === "recognition.final") {
+        utterance.started = true;
+        utterance.ended = true;
+        utterance.finals += 1;
+      }
+    }
+    if (event.payload?.state === "finalizing") decoderFlushes += 1;
+    if (event.payload?.state === "recognition-ended" && event.payload.willRestart) recognitionRestarts += 1;
+    if (event.type === "action.accepted") acceptedActions += 1;
+    if (event.type === "action.rejected") rejectedActions += 1;
+    if (event.type === "recognition.error") errors += 1;
+  });
+
+  const observed = [...utterances.values()].filter(({ started }) => started);
+  return {
+    events: voiceDiagnosticEvents.length,
+    speechBursts: observed.length,
+    finalTexts: observed.filter(({ finals }) => finals > 0).length,
+    noText: observed.filter(({ ended, interims, finals }) => ended && interims === 0 && finals === 0).length,
+    interimOnly: observed.filter(({ ended, interims, finals }) => ended && interims > 0 && finals === 0).length,
+    acceptedActions,
+    rejectedActions,
+    decoderFlushes,
+    recognitionRestarts,
+    carrierInjections,
+    errors,
+  };
+}
+
+function updateVoiceDiagnosticSummary() {
+  const summary = summarizeVoiceDiagnostics();
+  elements.voiceDebugState.textContent = `${summary.events} event${summary.events === 1 ? "" : "s"} in memory.`;
+  elements.voiceDebugSummary.textContent = summary.speechBursts
+    ? `${summary.speechBursts} speech burst${summary.speechBursts === 1 ? "" : "s"} · ${summary.finalTexts} final text · ${summary.noText} with no text · ${summary.interimOnly} interim-only · ${summary.acceptedActions} accepted · ${summary.rejectedActions} rejected · ${summary.decoderFlushes} decoder flushes · ${summary.recognitionRestarts} restarts${summary.carrierInjections ? ` · ${summary.carrierInjections} carrier${summary.carrierInjections === 1 ? "" : "s"} added` : ""} · ${summary.errors} errors`
+    : "No utterances observed yet. Start voice and speak normally; no audio will be recorded.";
+  elements.voiceDebugExport.disabled = voiceDiagnosticEvents.length === 0;
+}
+
+function recordVoiceDiagnostic(event) {
+  if (!elements.voiceDebugEnabled?.checked) return;
+  voiceDiagnosticEvents.push(event);
+  if (voiceDiagnosticEvents.length > VOICE_DIAGNOSTIC_LIMIT) voiceDiagnosticEvents.shift();
+  updateVoiceDiagnosticSummary();
+}
+
+function clearVoiceDiagnostics() {
+  voiceDiagnosticEvents = [];
+  voiceDiagnosticStartedAt = new Date().toISOString();
+  elements.voiceTrace.replaceChildren();
+  updateVoiceDiagnosticSummary();
+}
+
+function exportVoiceDiagnostics() {
+  const createdAt = new Date().toISOString();
+  const build = new URL(location.href).searchParams.get("build") || "unlabeled";
+  const bundle = {
+    schema: "elementary-learning-studio/speech-diagnostic-v1",
+    startedAt: voiceDiagnosticStartedAt,
+    createdAt,
+    build,
+    environment: {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      recognitionLanguage: elements.voiceLanguage.value,
+      localDeveloperMode: localDeveloperMode(),
+      retainBackgroundCapture: localDeveloperMode() && elements.voiceDebugBackground.checked,
+      requestedCommandHints: commandPhraseHints(elements.voiceLanguage.value).length,
+      singleWordHelp: { ...shortWordHelpState },
+    },
+    privacy: {
+      rawAudioRecorded: false,
+      uploaded: false,
+      retention: "memory-until-explicit-local-download",
+    },
+    summary: summarizeVoiceDiagnostics(),
+    events: voiceDiagnosticEvents,
+  };
+  const stamp = createdAt.replace(/[:.]/gu, "-");
+  download(JSON.stringify(bundle, null, 2), `els-speech-diagnostic-${stamp}.json`, "application/json;charset=utf-8");
+}
+
+function emitSpeechInterfaceEvent(type, payload = {}, adapter = "elementary-learning-studio") {
+  const event = createSpeechEvent({
+    sequence: speechEventSequence++, type, adapter,
+    locale: elements.voiceLanguage?.value || "und",
+    audioSource: "microphone", localProcessing: "verified", payload,
+  });
+  recordVoiceDiagnostic(event);
+  dispatchSpeechEvent(window, event);
+  return event;
+}
+
+function setVoiceSignal(state, label, detail) {
+  if (!elements.voiceSignal) return;
+  elements.voiceSignal.dataset.state = state;
+  elements.voiceDock.dataset.state = state;
+  elements.voiceSignalLabel.textContent = label;
+  elements.voiceSignalDetail.textContent = detail;
+}
+
+function formatConfidence(confidence) {
+  return Number.isFinite(confidence) && confidence > 0 ? `${Math.round(confidence * 100)}% confidence` : "confidence not reported";
+}
+
+function formatVoiceTiming(timing = {}) {
+  const parts = [];
+  if (Number.isFinite(timing.sinceSpeechStartMs)) parts.push(`result ${timing.sinceSpeechStartMs} ms after speech began`);
+  if (Number.isFinite(timing.sinceSpeechEndMs)) parts.push(`result ${timing.sinceSpeechEndMs} ms after speech ended`);
+  if (Number.isFinite(timing.adaptiveFlushMs)) {
+    const baseline = timing.baselineAdaptiveFlushMs;
+    parts.push(Number.isFinite(baseline) && baseline !== timing.adaptiveFlushMs
+      ? `quiet fallback ${timing.adaptiveFlushMs} ms (baseline ${baseline} ms)`
+      : `quiet fallback ${timing.adaptiveFlushMs} ms`);
+  }
+  if (Number.isFinite(timing.intentParseMs)) parts.push(`intent match ${timing.intentParseMs.toFixed(1)} ms`);
+  if (Number.isFinite(timing.captureGapMs)) parts.push(`recognizer restart gap ${timing.captureGapMs} ms`);
+  if (Number.isFinite(timing.startDelayMs)) parts.push(`capture start ${timing.startDelayMs} ms`);
+  if (Number.isFinite(timing.guiFrameMs)) parts.push(`GUI frame ${timing.guiFrameMs.toFixed(1)} ms`);
+  if (Number.isFinite(timing.policyDelayMs)) parts.push(`intentional feedback pause ${timing.policyDelayMs} ms`);
+  if (timing.finalization) parts.push(timing.finalization);
+  return parts.join(" · ");
+}
+
+function addVoiceTrace({ kind, transcript = "", alternatives = [], action = "", timing = null }) {
+  if (!elements.voiceDebugEnabled?.checked) return;
+  const item = document.createElement("li");
+  item.dataset.kind = kind;
+  const heading = document.createElement("strong");
+  const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  heading.textContent = `${timestamp} · ${kind}`;
+  item.append(heading);
+
+  const raw = document.createElement("span");
+  raw.textContent = transcript ? `browser text: “${transcript}”` : "browser text: none";
+  item.append(raw);
+
+  if (alternatives.length) {
+    const choices = document.createElement("span");
+    choices.textContent = `alternatives: ${alternatives.map((choice) => `“${choice.text}” (${formatConfidence(choice.confidence)})`).join(" · ")}`;
+    item.append(choices);
+  }
+
+  if (action) {
+    const interpreted = document.createElement("span");
+    interpreted.textContent = `studio action: ${action}`;
+    item.append(interpreted);
+  }
+
+  const timingText = timing ? formatVoiceTiming(timing) : "";
+  if (timingText) {
+    const measured = document.createElement("span");
+    measured.textContent = `timing: ${timingText}`;
+    item.append(measured);
+  }
+
+  elements.voiceTrace.append(item);
+  while (elements.voiceTrace.children.length > VOICE_TRACE_LIMIT) elements.voiceTrace.firstElementChild.remove();
+  updateVoiceDiagnosticSummary();
+  item.scrollIntoView({ block: "nearest" });
+}
+
+function advanceQuestionFromVoice(status = "Voice command: next question.", policyDelayMs = 0) {
+  const renderStartedAt = performance.now();
+  nextQuestion();
+  setVoiceStatus(status);
+  requestAnimationFrame(() => addVoiceTrace({
+    kind: "render",
+    action: "next question painted",
+    timing: { guiFrameMs: performance.now() - renderStartedAt, policyDelayMs },
+  }));
+}
+
+function scheduleVoiceAdvance() {
+  clearTimeout(voiceAdvanceTimer);
+  const finishing = index === SET_SIZE - 1;
+  setVoiceStatus(finishing
+    ? "Correct. Completing this practice set…"
+    : "Correct. Moving to the next question…");
+  voiceAdvanceTimer = setTimeout(
+    () => advanceQuestionFromVoice("Correct. Next question.", VOICE_ADVANCE_DELAY_MS),
+    VOICE_ADVANCE_DELAY_MS,
+  );
+}
+
+function voiceIntentContext() {
+  const targetingSudoku = activeAnswerTarget.kind === "sudoku";
+  return {
+    answerEnabled: targetingSudoku || !elements.answer.disabled,
+    answerPresent: !targetingSudoku && /^\d+$/.test(elements.answer.value.trim()),
+    readyForNext: !targetingSudoku && readyForNext,
+    gridNavigationAvailable: targetingSudoku,
+    locale: elements.voiceLanguage.value,
+    autoCheck: !targetingSudoku && elements.voiceAutoCheck.checked,
+    skipPolicy: "unavailable",
+  };
+}
+
+function handleVoice(transcript, alternatives = [], recognitionTiming = {}, recognitionLifecycle = null, traceKind = "final") {
+  const intentStartedAt = performance.now();
+  const targetingSudoku = activeAnswerTarget.kind === "sudoku";
+  const emitDecision = (type, payload = {}) => emitSpeechInterfaceEvent(type, {
+    ...payload,
+    ...(recognitionLifecycle ? { lifecycle: recognitionLifecycle } : {}),
+  });
+  const interpretation = resolveVoiceIntent(
+    { transcript, alternatives },
+    voiceIntentContext(),
+  );
+  const intentParseMs = performance.now() - intentStartedAt;
+  emitDecision("intent.proposed", { interpretation });
+  const alternativeNote = interpretation.match?.selection === "alternative"
+    ? `; matched alternative “${interpretation.match.text}”`
+    : "";
+  const trailingEvidence = interpretation.semantic?.evidence?.find((item) => item.matchMode === "suffix");
+  const trailingNote = trailingEvidence ? `; used trailing answer “${trailingEvidence.normalized}”` : "";
+  setVoiceHeard(`Browser text: “${transcript}”${alternativeNote}${trailingNote} → ${interpretation.action}.`);
+  addVoiceTrace({
+    kind: traceKind, transcript, alternatives,
+    action: `${interpretation.action}${alternativeNote}${trailingNote}`,
+    timing: { ...recognitionTiming, intentParseMs },
+  });
+
+  if (!interpretation.permitted && ["number", "command"].includes(interpretation.kind)) {
+    emitDecision("action.rejected", { action: interpretation.action, reason: interpretation.permission });
+    setVoiceStatus(interpretation.permission === "question-incomplete"
+      ? "I recognized “next,” but this question needs an entered answer first."
+      : interpretation.permission === "skip-unavailable"
+        ? "I recognized “skip,” but this practice set has no skip policy. Nothing was counted or changed."
+      : interpretation.permission === "grid-target-unavailable"
+        ? "Select a blank number-grid cell before using direction words."
+        : "I recognized that input, but the answer field is not available right now.");
+    return interpretation;
+  }
+
+  if (interpretation.intent === "grid-move") {
+    const moved = interpretation.operations.filter((operation) => numberGrid.move(operation.replace("grid.", ""))).length;
+    emitDecision("action.accepted", { action: interpretation.action, operations: interpretation.operations, moved });
+    setVoiceStatus(moved
+      ? `Moved the number-grid target ${moved} ${moved === 1 ? "step" : "steps"}.`
+      : "The number-grid target is already at that boundary.");
+    return interpretation;
+  }
+
+  if (interpretation.action === "stop voice input") {
+    emitDecision("action.accepted", { action: interpretation.action });
+    return stopVoice("Voice input stopped by spoken command.");
+  }
+  if (interpretation.action === "check the current answer") {
+    if (targetingSudoku) {
+      const result = numberGrid.check();
+      setVoiceStatus(result.correct
+        ? "Voice command: the number grid is complete and correct."
+        : "Voice command: the number grid was checked; keep thinking.");
+      emitDecision("action.accepted", { action: "check the number grid", correct: result.correct });
+      return interpretation;
+    }
+    if (!readyForNext) checkAnswer();
+    emitDecision("action.accepted", { action: interpretation.action, correct: readyForNext });
+    setVoiceStatus(readyForNext
+      ? "Correct. Say “next question” or “next” when you want to continue."
+      : "I checked the entered answer. Keep thinking and try again.");
+    return interpretation;
+  }
+  if (interpretation.action === "move to the next question") {
+    emitDecision("action.accepted", { action: interpretation.action });
+    advanceQuestionFromVoice();
+    return interpretation;
+  }
+  if (interpretation.action === "check the current answer and move if correct") {
+    checkAnswer();
+    emitDecision("action.accepted", { action: interpretation.action, correct: readyForNext });
+    if (readyForNext) advanceQuestionFromVoice("Correct. Next question.");
+    else setVoiceStatus("I checked the entered answer. It is not correct yet, so this question stays here.");
+    return interpretation;
+  }
+  if (interpretation.kind === "number") {
+    if (targetingSudoku) {
+      if (interpretation.value < 1 || interpretation.value > 4) {
+        emitDecision("action.rejected", { action: interpretation.action, reason: "outside-active-domain", allowedValues: [1, 2, 3, 4] });
+        setVoiceStatus("That number was recognized, but this grid accepts only 1, 2, 3, or 4.");
+        numberGrid.notify("This small grid uses only the numbers 1–4.", "error");
+        return { ...interpretation, permitted: false, permission: "outside-active-domain" };
+      }
+      numberGrid.enter(interpretation.value, { source: "voice" });
+      emitDecision("action.accepted", {
+        action: `enter ${interpretation.value} in number-grid cell`,
+        value: interpretation.value,
+        row: Math.floor(activeAnswerTarget.index / 4) + 1,
+        column: (activeAnswerTarget.index % 4) + 1,
+        checked: false,
+      });
+      setVoiceStatus(`${interpretation.value} entered in the highlighted number-grid cell.`);
+      return interpretation;
+    }
+    elements.answer.value = String(interpretation.value);
+    elements.answer.focus();
+    if (!interpretation.checkImmediately) {
+      emitDecision("action.accepted", { action: interpretation.action, value: interpretation.value, checked: false });
+      setVoiceStatus(`${interpretation.value} entered. Say “check” or “done” when you are ready.`);
+      return interpretation;
+    }
+    checkAnswer();
+    emitDecision("action.accepted", { action: interpretation.action, value: interpretation.value, correct: readyForNext });
+    if (readyForNext) scheduleVoiceAdvance();
+    else setVoiceStatus(`${interpretation.value} was checked. Try another answer.`);
+    return interpretation;
+  }
+  const reason = interpretation.kind === "ambiguous" ? "recognition alternatives conflict" : "no safe intent matched";
+  emitDecision("action.rejected", { action: interpretation.action, reason });
+  setVoiceStatus(interpretation.kind === "ambiguous"
+    ? "I heard more than one possible number or command. Please say it again."
+    : "I did not match that to a number or an available command.");
+  return interpretation;
+}
+
+function speechUtteranceKey(payload = {}) {
+  const lifecycle = payload.lifecycle;
+  return lifecycle?.recognitionCycle > 0 && lifecycle?.utterance > 0
+    ? `${lifecycle.recognitionCycle}:${lifecycle.utterance}`
+    : null;
+}
+
+function createInterimCommandCommitter() {
+  return new StableInterimCommitter({
+    delayMs: 500,
+    onCommit: ({ evidence }) => {
+      if (!voiceShouldRun || !evidence) return;
+      soundSinceStableCommit = false;
+      setVoiceSignal("processing", "Acting on a stable command", "Firefox supplied an exact command as interim text but did not finalize it in time.");
+      handleVoice(
+        evidence.transcript,
+        evidence.alternatives,
+        { ...evidence.timing, finalization: "stable-interim-commit" },
+        evidence.lifecycle,
+        "stable interim commit",
+      );
+    },
+  });
+}
+function supportsLocalSpeech() {
+  return speechSession
+    && typeof RecognitionConstructor?.available === "function"
+    && typeof RecognitionConstructor?.install === "function";
+}
+
+function handleSpeechSessionEvent(event) {
+  const { type, payload } = event;
+  if (type === "recognition.error" && payload.code === "aborted" && !voiceShouldRun) return;
+  emitSpeechInterfaceEvent(type, payload, event.source.adapter);
+
+  if (type === "audio.state" && payload.state === "capturing") {
+    const resumedAfterUtterance = voiceActive;
+    clearTimeout(voiceStartTimer);
+    voiceStarting = false;
+    voiceActive = true;
+    voiceAudioActive = true;
+    elements.voiceButton.textContent = "Stop voice input";
+    elements.voiceButton.setAttribute("aria-pressed", "true");
+    elements.voiceButton.setAttribute("aria-busy", "false");
+    if (!resumedAfterUtterance) {
+      setVoiceStatus(`Listening locally. Speak a number or one of the supported commands. Single-word help is ${recognitionInput ? "on" : "off"}.`);
+    }
+    const resumedQuickly = Number.isFinite(payload.timing?.captureGapMs);
+    setVoiceSignal("listening", "Microphone active", resumedQuickly
+      ? `Firefox resumed capture after a ${payload.timing.captureGapMs} ms recognition restart gap.`
+      : "Firefox has confirmed that audio capture started.");
+    addVoiceTrace({ kind: "audio start", action: "browser began microphone capture", timing: payload.timing });
+    return;
+  }
+
+  if (type === "audio.state" && payload.state === "finalizing") {
+    setVoiceSignal("processing", "Completing the last word", "Firefox has not finalized this utterance yet, so the local adapter is draining its decoder tail.");
+    addVoiceTrace({
+      kind: "decoder flush",
+      action: `graceful finalization: ${payload.reason}`,
+      timing: payload.timing,
+    });
+    return;
+  }
+
+  if (type === "audio.state" && payload.state === "paused") {
+    voiceAudioActive = false;
+    if (voiceShouldRun) {
+      setVoiceSignal("processing", "Completing the last word", "The local speech layer is finalizing this utterance before listening again.");
+    }
+    addVoiceTrace({ kind: "audio end", action: "local speech segment finalized" });
+    return;
+  }
+
+  if (type === "audio.state") {
+    if (payload.state === "speech-started" || payload.state === "sound-started") soundSinceStableCommit = true;
+    if (payload.state === "speech-started") {
+      setVoiceSignal("hearing", "Speech detected", payload.boundarySource === "page-loudness"
+        ? "The local loudness detector noticed the beginning of a speech burst."
+        : "Firefox reported the beginning of a speech burst.");
+    } else if (payload.state === "speech-ended") {
+      setVoiceSignal("processing", "Speech ended", "Waiting for Firefox to provide final text.");
+    } else if (payload.state === "no-match") {
+      setVoiceStatus("Firefox heard a sound but returned no words. Try the answer in a short phrase, or use keyboard or touch.");
+    }
+    const phraseHints = payload.state === "recognition-started"
+      ? payload.recognizer?.contextualBiasing
+      : null;
+    // Firefox accepts phrase hints through the API but its on-device engine
+    // does not use them yet, so the trace reports them as passed, not applied.
+    const phraseEvidence = phraseHints?.requestedPhrases
+      ? ` · ${phraseHints.requestedPhrases} command hints ${phraseHints.applied ? "passed to the browser" : "unsupported by this browser"}`
+      : "";
+    const pageEvidence = payload.boundarySource === "page-loudness"
+      ? ` · page loudness${Number.isFinite(payload.timing?.speechMs) ? ` (${payload.timing.speechMs} ms speech, ${payload.timing.quietMs} ms quiet)` : ""}`
+      : "";
+    const carrierEvidence = payload.state === "carrier-injected"
+      ? ` · added the built-in “okay” (${payload.carrier.durationMs} ms) to the recognizer input`
+      : payload.state === "carrier-only" ? " · the recognizer returned only the carrier; ignored" : "";
+    addVoiceTrace({
+      kind: "lifecycle",
+      action: `${payload.state} · cycle ${payload.lifecycle?.recognitionCycle ?? "?"} · utterance ${payload.lifecycle?.utterance ?? "?"}${phraseEvidence}${pageEvidence}${carrierEvidence}`,
+      timing: payload.timing,
+    });
+    return;
+  }
+
+  if (type === "recognition.interim") {
+    setVoiceHeard(payload.transcript ? `Hearing: “${payload.transcript}”…` : "Hearing speech…");
+    const preview = resolveVoiceIntent(
+      { transcript: payload.transcript, alternatives: payload.alternatives },
+      voiceIntentContext(),
+    );
+    const commandPreview = preview.kind === "command";
+    const utteranceKey = speechUtteranceKey(payload);
+    const stableCandidate = commandPreview && payload.timing?.flushPolicy === "consumer-selected" && utteranceKey;
+    if (stableCandidate) {
+      interimCommandCommitter?.consider({
+        utteranceKey,
+        candidateKey: preview.semantic.canonicalKey,
+        evidence: payload,
+        delayMs: payload.timing.adaptiveFlushMs,
+      });
+    } else if (utteranceKey) {
+      interimCommandCommitter?.cancel(utteranceKey);
+    }
+    setVoiceSignal("hearing", commandPreview ? `Heard “${payload.transcript}”` : "Speech detected", commandPreview
+      ? `Holding the exact command for ${payload.timing.adaptiveFlushMs} ms to ensure the phrase has ended.`
+      : "Interim text is arriving from the local recognizer.");
+    addVoiceTrace({
+      kind: "interim", transcript: payload.transcript, alternatives: payload.alternatives,
+      action: commandPreview
+        ? `commit if the command remains unchanged for ${payload.timing.adaptiveFlushMs} ms`
+        : `wait up to ${payload.timing.adaptiveFlushMs} ms for the utterance boundary`,
+      timing: payload.timing,
+    });
+    return;
+  }
+
+  if (type === "recognition.final") {
+    const utteranceKey = speechUtteranceKey(payload);
+    if (utteranceKey && interimCommandCommitter?.finalize(utteranceKey)) {
+      setVoiceHeard(`Browser final text: “${payload.transcript}” · action already taken from the stable interim command.`);
+      addVoiceTrace({
+        kind: "final", transcript: payload.transcript, alternatives: payload.alternatives,
+        action: "duplicate action suppressed after stable interim commit",
+        timing: payload.timing,
+      });
+      return;
+    }
+    // Firefox may drain a short word under a new utterance number after the
+    // adapter's sound-end flush. Compare by canonical command meaning so the
+    // provisional candidate and its final cannot both act.
+    const finalPreview = resolveVoiceIntent(
+      { transcript: payload.transcript, alternatives: payload.alternatives },
+      voiceIntentContext(),
+    );
+    const finalKey = finalPreview.kind === "command" ? finalPreview.semantic?.canonicalKey : null;
+    if (finalKey && interimCommandCommitter) {
+      const last = interimCommandCommitter.lastCommitted;
+      if (!soundSinceStableCommit && last?.candidateKey === finalKey) {
+        setVoiceHeard(`Browser final text: “${payload.transcript}” · action already taken from the stable interim command.`);
+        addVoiceTrace({
+          kind: "final", transcript: payload.transcript, alternatives: payload.alternatives,
+          action: "duplicate action suppressed: same command drained after stable interim commit",
+          timing: payload.timing,
+        });
+        return;
+      }
+      if (interimCommandCommitter.supersede(finalKey)) {
+        addVoiceTrace({ kind: "final", action: "pending stable interim command superseded by browser final", timing: payload.timing });
+      }
+    }
+    if (payload.carrier?.removed?.length) {
+      addVoiceTrace({
+        kind: "carrier",
+        transcript: payload.carrier.rawTranscript,
+        action: `removed the built-in carrier “${payload.carrier.removed.join(" ")}” before matching`,
+        timing: payload.timing,
+      });
+    }
+    setVoiceSignal("processing", "Processing recognized words", payload.timing?.finalization === "carrier-released"
+      ? "The built-in carrier released this word from Firefox; matching it now."
+      : "Matching the final local text to the studio’s small command set.");
+    handleVoice(payload.transcript, payload.alternatives, payload.timing, payload.lifecycle);
+    return;
+  }
+
+  if (type === "recognition.error") {
+    addVoiceTrace({ kind: "error", action: voiceErrorMessage(payload.code) });
+    if (payload.code === "no-speech" && voiceShouldRun) {
+      setVoiceStatus(voiceErrorMessage(payload.code));
+      return;
+    }
+    stopVoice(voiceErrorMessage(payload.code));
+    setVoiceSignal("error", "Voice input error", voiceErrorMessage(payload.code));
+  }
+}
+
+function createSpeechSession() {
+  try {
+    interimCommandCommitter?.reset();
+    soundSinceStableCommit = true;
+    interimCommandCommitter = createInterimCommandCommitter();
+    speechSession = new LocalSpeechSession({
+      locale: elements.voiceLanguage.value,
+      Recognition: RecognitionConstructor,
+      phrases: commandPhraseHints(elements.voiceLanguage.value),
+      interimFlushDelay: (evidence) => commandAwareInterimFlushDelay(evidence, voiceIntentContext()),
+    });
+    speechSession.addEventListener("speech", ({ detail }) => handleSpeechSessionEvent(detail));
+    return true;
+  } catch (_) {
+    speechSession = null;
+    return false;
+  }
+}
+
+function showVoiceDownload(show, language = elements.voiceLanguage.value) {
+  elements.voiceDownload.hidden = !show;
+  if (show) {
+    const label = elements.voiceLanguage.options[elements.voiceLanguage.selectedIndex].text;
+    elements.voiceDownloadLabel.textContent = `The browser is downloading its ${label} language pack. It does not report a percentage.`;
+    elements.voiceDownload.dataset.language = language;
+  }
+}
+
+// The availability check should answer within a few seconds. Firefox Nightly
+// can stop answering entirely when it has updated itself on disk while still
+// running: its speech service must start a new process from the new build.
+const SPEECH_CHECK_TIMEOUT_MS = 15_000;
+const SPEECH_CHECK_TIMEOUT = "speech-check-timeout";
+
+function withSpeechCheckTimeout(promise) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(SPEECH_CHECK_TIMEOUT)), SPEECH_CHECK_TIMEOUT_MS); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function stopUnansweredSpeechCheck() {
+  if (!voiceShouldRun) return;
+  elements.voiceAvailability.textContent = "Browser speech service not responding";
+  stopVoice("The browser’s on-device speech service did not answer within 15 seconds. If Firefox Nightly updated itself while it was open, restart Nightly and try again. Keyboard and touch still work.");
+}
+
+async function prepareVoice() {
+  if (!supportsLocalSpeech()) return false;
+  const language = elements.voiceLanguage.value;
+
+  let status;
+  try {
+    status = await withSpeechCheckTimeout(RecognitionConstructor.available({
+      langs: [language],
+      processLocally: true,
+      quality: "command",
+    }));
+  } catch (error) {
+    if (error?.message === SPEECH_CHECK_TIMEOUT) {
+      stopUnansweredSpeechCheck();
+      return false;
+    }
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    stopVoice("This browser could not confirm on-device recognition. Voice remains off to protect privacy.");
+    return false;
+  }
+
+  if (status === "available") {
+    try {
+      await withSpeechCheckTimeout(speechSession.prepare());
+    } catch (error) {
+      if (error?.message === SPEECH_CHECK_TIMEOUT) {
+        stopUnansweredSpeechCheck();
+        return false;
+      }
+      throw error;
+    }
+    elements.voiceAvailability.textContent = "Private on-device speech ready";
+    elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
+    return true;
+  }
+
+  if (status === "downloadable" || status === "downloading") {
+    showVoiceDownload(true);
+    elements.voiceButton.textContent = "Cancel setup";
+    setVoiceStatus("Waiting for the browser’s local language pack…");
+    const installed = await RecognitionConstructor.install({
+      langs: [language],
+      processLocally: true,
+      quality: "command",
+    });
+    showVoiceDownload(false);
+    if (!voiceShouldRun) return;
+    if (installed) {
+      await speechSession.prepare();
+      elements.voiceAvailability.textContent = "Private on-device speech ready";
+      elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
+      setVoiceStatus("Local language pack ready. Starting the microphone…");
+      return true;
+    }
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    stopVoice("The local language pack was not installed. Voice remains off; this studio never falls back to an online speech service.");
+    return false;
+  }
+
+  elements.voiceAvailability.textContent = "Private local speech unavailable";
+  stopVoice("The selected language is not available for on-device recognition. Voice remains off; keyboard and touch still work.");
+  return false;
+}
+
+function beginRecognition() {
+  if (!speechSession || !voiceShouldRun) return;
+  voiceStarting = true;
+  voiceAudioActive = false;
+  elements.voiceButton.disabled = false;
+  elements.voiceButton.textContent = "Cancel voice start";
+  elements.voiceButton.setAttribute("aria-busy", "true");
+  setVoiceStatus("Waiting for the browser to start listening…");
+  setVoiceSignal("preparing", "Starting local speech", "The browser has not confirmed microphone capture yet.");
+  clearTimeout(voiceStartTimer);
+  voiceStartTimer = setTimeout(() => {
+    if (!voiceActive && voiceShouldRun) {
+      stopVoice("Voice input did not start. This browser may show the API without providing a working speech service.");
+    }
+  }, 7000);
+  try {
+    speechSession.start(recognitionInput ? { input: recognitionInput } : undefined);
+  } catch (_) {
+    stopVoice("Voice input could not start in this browser.");
+  }
+}
+
+function shortWordHelpRequested() {
+  return elements.voiceShortWordHelp.checked && elements.voiceLanguage.value.toLowerCase().startsWith("en");
+}
+
+// Opt-in: route the microphone through the page so LSI can detect the end of
+// speech by loudness and add the carrier. Any failure falls back to the
+// browser's own capture rather than blocking voice.
+async function openShortWordHelp() {
+  closeShortWordHelp();
+  const requested = shortWordHelpRequested();
+  shortWordHelpState = {
+    requested,
+    active: false,
+    detail: requested ? "opening" : (elements.voiceShortWordHelp.checked ? "English only" : "not requested"),
+  };
+  if (!requested) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext !== "function") {
+    shortWordHelpState.detail = "Web Audio microphone access unavailable";
+    setVoiceStatus("Single-word help needs Web Audio microphone access, which this browser does not provide. Continuing without it.");
+    return;
+  }
+  try {
+    const method = shortWordMethod();
+    recognitionInput = await openRecognitionInput({ carrier: method === "carrier" ? SPEECH_CARRIER : null });
+    shortWordHelpState = {
+      requested: true,
+      active: true,
+      method,
+      detail: method === "carrier" ? "page loudness endpointing with the built-in carrier" : "page loudness endpointing; finalize after silence",
+    };
+    elements.voicePrivacy.textContent = VOICE_PRIVACY_PAGE_CAPTURE;
+    addVoiceTrace({ kind: "lifecycle", action: "single-word help on · the page measures loudness and can add the built-in “okay” to the recognizer input; no audio is stored" });
+  } catch (error) {
+    recognitionInput = null;
+    shortWordHelpState = { requested: true, active: false, detail: `${error?.name ?? "Error"}: ${error?.message ?? error}` };
+    setVoiceStatus(error?.name === "NotAllowedError"
+      ? "Microphone permission was not granted for single-word help. Continuing with the browser’s own capture."
+      : `Single-word help is unavailable (${error?.message ?? "unknown error"}). Continuing without it.`);
+    addVoiceTrace({ kind: "error", action: `single-word help unavailable: ${error?.message ?? error}` });
+  }
+}
+
+function closeShortWordHelp() {
+  recognitionInput?.close();
+  recognitionInput = null;
+  if (elements.voicePrivacy) elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
+}
+
+async function startVoice() {
+  if (!RecognitionConstructor || voiceActive || voiceStarting) return;
+  if (!createSpeechSession()) {
+    stopVoice("This browser could not initialize verified local speech. Keyboard and touch still work.");
+    return;
+  }
+  voiceShouldRun = true;
+  voiceStarting = true;
+  showVoiceDock(true);
+  elements.voiceButton.textContent = "Cancel voice start";
+  elements.voiceButton.setAttribute("aria-busy", "true");
+  setVoiceStatus("Preparing the browser’s speech interface…");
+  setVoiceHeard("Waiting for browser text…");
+  setVoiceSignal("preparing", "Preparing local speech", "Checking the on-device language pack before opening the microphone.");
+  try {
+    const localReady = await prepareVoice();
+    if (!localReady || !voiceShouldRun) return;
+    await openShortWordHelp();
+    if (!voiceShouldRun) {
+      closeShortWordHelp();
+      return;
+    }
+    beginRecognition();
+  } catch (_) {
+    stopVoice("The browser could not prepare voice input. Keyboard and touch still work.");
+  }
+}
+
+function voiceErrorMessage(error) {
+  const messages = {
+    "not-allowed": "Microphone permission was not granted. Voice input is off.",
+    "service-not-allowed": "The browser’s speech service is unavailable or blocked.",
+    "audio-capture": "The browser could not access a microphone.",
+    "language-not-supported": "This browser does not support the selected speech language.",
+    network: "The browser’s speech service could not connect.",
+    "no-speech": "I did not hear speech. Voice input is still available; try again.",
+  };
+  return messages[error] || `Voice input stopped (${error}).`;
+}
+
+function setupVoice() {
+  RecognitionConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!RecognitionConstructor) {
+    elements.voiceAvailability.textContent = "Unavailable in this browser";
+    setVoiceStatus("This browser does not provide speech recognition to web pages. Keyboard and touch remain available.");
+    elements.voiceButton.textContent = "Voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
+
+  if (!createSpeechSession()) {
+    elements.voiceAvailability.textContent = "Unavailable in this browser";
+    setVoiceStatus("This browser exposes a speech interface but could not initialize it. Keyboard and touch remain available.");
+    elements.voiceButton.textContent = "Voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
+  if (!supportsLocalSpeech()) {
+    speechSession = null;
+    elements.voiceAvailability.textContent = "Private local speech unavailable";
+    setVoiceStatus("This browser does not expose verified on-device speech recognition. Online recognition is intentionally disabled.");
+    elements.voiceButton.textContent = "Local voice unavailable";
+    elements.voiceButton.disabled = true;
+    elements.voiceLanguage.disabled = true;
+    return;
+  }
+  elements.voiceButton.disabled = false;
+  elements.voiceLanguage.disabled = false;
+  elements.voiceAvailability.textContent = "On-device speech · checked before listening";
+  setVoiceStatus("Optional local voice is ready when you choose it.");
+  setVoiceSignal("off", "Microphone off", "No audio is being captured.");
+}
+
+function stopVoice(message = "Voice input is off.", { finalizePending = false } = {}) {
+  clearTimeout(voiceStartTimer);
+  clearTimeout(voiceAdvanceTimer);
+  voiceShouldRun = false;
+  voiceStarting = false;
+  voiceActive = false;
+  voiceAudioActive = false;
+  interimCommandCommitter?.reset();
+  showVoiceDownload(false);
+  if (elements.voiceButton) {
+    elements.voiceButton.textContent = speechSession ? "Start optional voice" : "Voice unavailable";
+    elements.voiceButton.setAttribute("aria-pressed", "false");
+    elements.voiceButton.setAttribute("aria-busy", "false");
+    elements.voiceButton.disabled = !speechSession;
+  }
+  if (elements.voiceStatus) setVoiceStatus(message);
+  setVoiceSignal("off", "Microphone off", "No audio is being captured.");
+  showVoiceDock(false);
+  if (speechSession) {
+    try { speechSession.stop({ finalizePending }); } catch (_) { /* It was already stopped. */ }
+  }
+  closeShortWordHelp();
+}
+
 elements.form.addEventListener("submit", (event) => { event.preventDefault(); checkAnswer(); });
+elements.answer.addEventListener("focus", () => setActiveAnswerTarget({ kind: "math" }));
 elements.hintButton.addEventListener("click", () => {
   const question = currentQuestion(); elements.hint.textContent = operations[operation].hint(question.a, question.b); question.hintUsed = true; elements.answer.focus();
 });
@@ -428,8 +1366,65 @@ document.querySelector("#clear-all").addEventListener("click", () => {
   try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(OLD_STORAGE_KEY); } catch (_) { /* Storage is optional. */ }
   renderLearnerChoices(); renderHistory(); renderProgress();
 });
+elements.voiceButton.addEventListener("click", () => (voiceActive || voiceStarting) ? stopVoice() : startVoice());
+elements.voiceDockStop.addEventListener("click", () => stopVoice("Optional voice input stopped."));
+elements.voiceShortWordHelp.addEventListener("change", () => {
+  rememberSessionPreference(SHORT_WORD_HELP_KEY, elements.voiceShortWordHelp.checked);
+  if (voiceActive || voiceStarting) setVoiceStatus("Single-word help changes take effect the next time voice starts.");
+});
+elements.voiceLanguage.addEventListener("change", () => {
+  if (voiceActive || voiceStarting) stopVoice("Language changed. Start optional voice again when ready.");
+  if (speechSession) setVoiceStatus("Language changed. Optional local voice is ready when you choose it.");
+});
+elements.voiceDebugEnabled.addEventListener("change", () => {
+  rememberSessionPreference(VOICE_DEBUG_ENABLED_KEY, elements.voiceDebugEnabled.checked);
+  elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
+  updateVoiceDiagnosticSummary();
+});
+elements.voiceDebugBackground.addEventListener("change", () => {
+  rememberSessionPreference(VOICE_DEBUG_BACKGROUND_KEY, elements.voiceDebugBackground.checked);
+});
+elements.voiceDebugExport.addEventListener("click", exportVoiceDiagnostics);
+elements.voiceDebugClear.addEventListener("click", clearVoiceDiagnostics);
+// The number grid owns its board; voice follows its selection and drives it
+// only through the numberGrid controller.
+document.addEventListener("number-grid:select", ({ detail }) => setActiveAnswerTarget({ kind: "sudoku", index: detail.index }));
+elements.sudokuGrid.addEventListener("pointerover", (event) => {
+  const cell = event.target.closest(".sudoku-cell");
+  if (!cell || event.pointerType !== "mouse" || !elements.voicePointerFollow.checked) return;
+  const index = Number(cell.dataset.sudokuIndex);
+  if (!numberGrid.isGiven(index) && numberGrid.selectedIndex !== index) numberGrid.select(index);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (localDeveloperMode() && elements.voiceDebugBackground.checked) {
+      emitSpeechInterfaceEvent("audio.state", {
+        state: "background-capture-retained",
+        reason: "explicit-local-developer-preference",
+      });
+      addVoiceTrace({ kind: "lifecycle", action: "local developer mode retained background capture" });
+      return;
+    }
+    stopVoice("Voice input stopped when the page was hidden; finishing the words already heard.", { finalizePending: true });
+  }
+});
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
-renderLearnerChoices(); renderHistory(); startSet();
+elements.voiceDebugEnabled.checked = sessionPreference(VOICE_DEBUG_ENABLED_KEY, localDeveloperMode());
+// Opt-in on the published site; on by default on loopback developer hosts, so
+// real-voice tests exercise it. Remembered for the tab either way.
+elements.voiceShortWordHelp.checked = sessionPreference(SHORT_WORD_HELP_KEY, localDeveloperMode());
+elements.voiceDebugBackgroundLabel.hidden = !localDeveloperMode();
+elements.voiceShortWordMethodLabel.hidden = !localDeveloperMode();
+try { elements.voiceShortWordMethod.value = sessionStorage.getItem(SHORT_WORD_METHOD_KEY) || "finalize"; } catch (_) { /* Storage is optional. */ }
+elements.voiceShortWordMethod.addEventListener("change", () => {
+  try { sessionStorage.setItem(SHORT_WORD_METHOD_KEY, elements.voiceShortWordMethod.value); } catch (_) { /* Storage is optional. */ }
+  if (voiceActive || voiceStarting) setVoiceStatus("The release method changes the next time voice starts.");
+});
+elements.voiceDebugBackground.checked = localDeveloperMode()
+  && sessionPreference(VOICE_DEBUG_BACKGROUND_KEY, false);
+elements.voiceDebugOutput.hidden = !elements.voiceDebugEnabled.checked;
+updateVoiceDiagnosticSummary();
+renderLearnerChoices(); renderHistory(); setupVoice(); startSet();

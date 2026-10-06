@@ -34,7 +34,7 @@ class SiteTests(unittest.TestCase):
         cls.parser.feed(cls.html)
 
     def test_required_sections_are_present(self) -> None:
-        self.assertTrue({"main", "practice", "print", "approach"}.issubset(self.parser.ids))
+        self.assertTrue({"main", "practice", "number-grid", "print", "approach", "privacy"}.issubset(self.parser.ids))
 
     def test_reviewed_pdf_is_linked(self) -> None:
         self.assertIn("pdfs/grade4_fluency-starter-pack.pdf", self.parser.links)
@@ -42,11 +42,51 @@ class SiteTests(unittest.TestCase):
 
     def test_scripts_are_local(self) -> None:
         self.assertEqual(self.parser.scripts, ["app.js", "number-grid.js"])
+        self.assertTrue((SITE_ROOT / "voice-intent.js").is_file())
 
     def test_no_tracking_or_remote_assets(self) -> None:
         lowered = self.html.lower()
         for marker in ("google-analytics", "googletagmanager", "facebook.net", "hotjar"):
             self.assertNotIn(marker, lowered)
+
+    def test_public_voice_privacy_brief_is_local_and_fail_closed(self) -> None:
+        brief_path = SITE_ROOT / "voice-privacy.html"
+        self.assertTrue(brief_path.is_file())
+        brief = brief_path.read_text(encoding="utf-8")
+        self.assertIn("does not silently fall back", brief)
+        self.assertIn("Vietnamese", brief)
+        self.assertIn('href="styles.css"', brief)
+        self.assertNotIn("<script", brief.lower())
+
+    def test_vendored_local_speech_interface_has_provenance(self) -> None:
+        vendor = SITE_ROOT / "vendor" / "local-speech-interface"
+        for name in (
+            "index.js", "capabilities.js", "domain-grammar.js", "integer-domain.js",
+            "local-session.js", "local-policy.js", "speech-event.js", "dom-bridge.js",
+            "stable-interim.js", "loudness-endpointer.js", "recognition-input.js",
+        ):
+            source = vendor / name
+            self.assertTrue(source.is_file())
+            self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
+        provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
+        self.assertIn("0.5.0", provenance)
+        self.assertIn("ee6f13d", provenance)
+
+    def test_speech_carrier_is_openly_licensed_and_matches_its_provenance(self) -> None:
+        import hashlib
+        import wave
+
+        carrier = SITE_ROOT / "audio" / "speech-carrier-en.wav"
+        provenance = (SITE_ROOT / "audio" / "speech-carrier-en.md").read_text(encoding="utf-8")
+        with wave.open(str(carrier), "rb") as audio:
+            self.assertEqual((audio.getnchannels(), audio.getsampwidth()), (1, 2))
+            self.assertLess(audio.getnframes() / audio.getframerate(), 1.0)
+        digest = hashlib.sha256(carrier.read_bytes()).hexdigest()
+        self.assertIn(f"Output sha256: `{digest}`", provenance)
+        for required in ("piper-tts", "(MIT)", "LJ Speech", "public-domain", "CC BY 4.0"):
+            self.assertIn(required, provenance)
+        sw = (SITE_ROOT / "sw.js").read_text(encoding="utf-8")
+        self.assertIn('"audio/speech-carrier-en.wav"', sw)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 # Elementary Learning Studio
 
-An open, reproducible studio for creating thoughtful elementary mathematics practice on paper and in the browser. The first printable pack uses the familiar 10 x 10 arithmetic-grid format, redesigned independently around accuracy, strategy, reflection, and steady progress. Timing is always optional.
+**An open framework for learner-owned studios.** The repository is a reproducible maker and governance layer: it holds the generators, activity contracts, curriculum decisions, privacy rules, tests, and reviewed examples. A **studio** is the experience those materials create on a learner's own device.
+
+The first activities focus on elementary mathematics. The first printable pack uses the familiar 10 x 10 arithmetic-grid format, redesigned independently around accuracy, strategy, reflection, and steady progress. Timing is always optional. The architecture is intentionally broader: language practice, spoken interaction, visual explanation, and other forms of elementary learning can grow here without turning learner activity into a cloud data product.
 
 ## Try it online
 
@@ -8,9 +10,26 @@ An open, reproducible studio for creating thoughtful elementary mathematics prac
 
 The progress panel shows first-try accuracy, retries, hints, facts worth revisiting, confidence, and recent sessions. Timing is opt-in per set and hidden in the standard view. Families can download ordinary CSV or xAPI-compatible JSON without sending learner data to a server. A downloadable practice award is deliberately labelled as an informal celebration, not a graded or verified credential.
 
-A child-sized 4×4 Sudoku (numbers 1–4) offers a short logic break. Click, touch, keyboard, and on-screen number buttons all select and fill the same cells, and checking highlights cells to revisit without revealing the solution.
+An optional page-wide panel offers strictly on-device, browser-provided speech recognition for English, French, German, and Vietnamese numbers and a closed set of safe commands. Keyboard and touch remain complete without it. While voice is active, a persistent status strip shows the current exercise target, live browser text, and the accepted or rejected result even after the setup panel scrolls away. By default, speech fills the answer and waits for “check” or “done”; an explicit immediate-checking mode checks each spoken number and advances after a correct answer. Exact commands can commit from unchanged interim text after a bounded 500 ms boundary when Firefox withholds its final result; continued prose cancels them, repeated identical commands remain idempotent, and late final results are deduplicated. The studio verifies the local-processing API and language pack before listening, shows language-pack setup progress, and **never falls back to an online speech service**. LSI's generated domain grammar exhaustively covers the declared integer range from 0–999, resolves ranked transcripts by canonical meaning, and rejects conflicts rather than guessing; it does not consult the correct answer. Recognition and current permission remain separate, so a number heard while the answer field is unavailable is reported as recognized but rejected—not misreported as unintelligible. Unsupported browsers stay visibly unavailable while keyboard and touch continue to work. Its observable events implement the sibling Local Speech Interface v0.1 contract, keeping recognition, intent, and accepted action distinct. See the public [Local voice and privacy brief](https://stevenbergner.github.io/elementary-learning-studio/voice-privacy.html), [Input methods and privacy](docs/INPUT_METHODS.md), and the technical [Local voice and AI research brief](docs/LOCAL_VOICE_AND_AI.md).
 
-The studio has no voice input and never asks for the microphone: keyboard and touch are the dependable inputs. Voice input was explored and is parked on the `voice-integration` branch until it works reliably. See [Input methods and privacy](docs/INPUT_METHODS.md) for that decision and for deferring handwriting recognition.
+Firefox Nightly currently has an important short-turn limitation: its English
+streaming model holds back an utterance's last word until the next word starts,
+so an isolated word such as “four” can produce no page-visible text until later
+speech. An experimental, opt-in **Help Firefox finish single words** option
+(English; off by default on the published site, on by default for local development) lets the page detect the end of speech from loudness
+alone and play a short built-in spoken “okay” into the recognizer, never the
+speakers, which can release the held-back word. In real-recognizer fixture
+tests it released nearly every held-back word when the word and the carrier
+came from the same synthetic voice, but with words from other voices the
+benefit was small or absent. Whether it helps a real speaker is still untested.
+The carrier is an openly licensed TTS clip (Piper with the
+public-domain-trained LJ Speech voice); see
+[its provenance](site/audio/speech-carrier-en.md). Voice therefore remains
+experimental and secondary to touch and keyboard. The mechanism, measurements,
+and upstream boundary are documented in [Firefox Nightly short-utterance
+finding](docs/FIREFOX_SHORT_UTTERANCE_FINDING.md).
+
+A child-sized 4×4 Sudoku demonstrates scoped point-and-speak entry without turning speech into general page control. Mouse hover, touch, keyboard, and on-screen buttons all select or fill the same cells; voice accepts only 1–4 for the highlighted editable cell. Four reviewed grids each have exactly one solution. The separate [language-exercise authoring contract](docs/LANGUAGE_EXERCISE_AUTHORING.md) compiles prompt-specific accepted phrases and checks model-specific transcription receipts, providing a bounded path toward spoken French practice without an always-running language-model judge.
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
@@ -74,7 +93,7 @@ Assemble the same static artifact that GitHub Pages deploys:
 make site
 ```
 
-Browser quality checks run in GitHub Actions at desktop, iPad, and school-laptop viewport sizes. They exercise keyboard answering, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
+Browser quality checks run in GitHub Actions in Chromium and Firefox, including upright-phone, iPad, desktop, and school-laptop viewport sizes. They exercise keyboard answering, point-and-speak Sudoku, voice capability fallbacks, touch-target sizing, responsive overflow, JavaScript errors, and the published PDF. To run them locally after installing the Node development dependency and Playwright's Chromium browser:
 
 ```bash
 npm ci
@@ -82,6 +101,27 @@ npx playwright install chromium
 npm run build:site
 npm run test:browser
 ```
+
+To try Mozilla's experimental, strictly on-device speech recognition in an
+isolated Firefox Nightly profile on an Apple Silicon Mac:
+
+```bash
+./scripts/run_firefox_nightly.sh
+```
+
+This user-local launcher keeps Nightly separate from normal Firefox and opens
+the public studio. See [the Firefox Nightly voice test checklist](docs/FIREFOX_NIGHTLY_TEST.md)
+before reporting results upstream.
+
+For local development, build the site, serve it only on this Mac, and open that
+working copy in the same isolated Nightly profile:
+
+```bash
+./scripts/run_firefox_nightly.sh --local
+```
+
+Keep that command running while testing and press Control-C to close the local
+server. Microphone access is still controlled by Firefox.
 
 ## Project map
 
@@ -91,10 +131,16 @@ npm run test:browser
 | `src/family_math/generator.py` | Deterministic problem and LaTeX generation |
 | `scripts/build_pack.py` | Command-line entry point |
 | `scripts/summarize_progress.py` | Turns the CSV log into a compact Markdown report |
+| `scripts/run_firefox_nightly.sh` | Installs and launches an isolated Firefox Nightly voice-test profile |
 | `data/progress.csv` | Family-owned practice log; one row per session |
 | `docs/LEARNING_GUIDE.md` | How to use the materials without making speed the goal |
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
-| `docs/INPUT_METHODS.md` | Input, voice, pen, handwriting, and privacy decisions |
+| `docs/INPUT_METHODS.md` | Voice, pen, handwriting, and privacy decisions |
+| `docs/LOCAL_VOICE_AND_AI.md` | Browser evidence, local-AI architecture, mobile limits, and contribution roadmap |
+| `docs/FIREFOX_SHORT_UTTERANCE_FINDING.md` | Reproducible one-word recognition limitation and the next local event-boundary experiment |
+| `site/vendor/local-speech-interface/` | MPL-2.0 browser snapshot providing verified local recognition and adaptive utterance finalization |
+| `site/voice-intent.js` | Deterministic multilingual number-and-command resolver over ranked recognition alternatives |
+| `docs/POSITIONING_AND_ECOSYSTEM.md` | Brand architecture, market position, sustainable ecosystem, and feedback principles |
 | `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
 | `site/` | Dependency-free browser practice and project landing page |
@@ -117,6 +163,21 @@ External sources are cited for curriculum context and format research only. This
 - A short reflection box asks for a strategy, not only a score.
 - Progress is compared with the learner's own earlier work, never with another child.
 - A malformed entry is input feedback, not a recorded mathematical mistake.
-- Timing and downloads are each explicit learner or family choices; the site never requests the microphone or camera.
+- Timing, microphone use, and downloads are each explicit learner or family choices.
+- Optional intelligence must be local, inspectable, replaceable, and fail closed when its privacy contract cannot be verified.
+
+## Development philosophy
+
+The repository does not present itself as the learner's studio. It is the open workshop that makes and audits studio experiences. That distinction matters:
+
+- curriculum claims belong beside reproducible activities and evidence;
+- privacy promises are enforced in code and tests, not left as marketing language;
+- exported records remain understandable without this software;
+- open source makes the implementation inspectable and forkable, but does not by itself prove that an educational or privacy claim is valid;
+- emerging capabilities are introduced as optional experiments with a dependable non-AI path.
+
+The aim is a curriculum that can respond, speak, and adapt while keeping the learner in control. Progress should become visible through artifacts, explanations, successful actions, and growing independence—not through opaque profiling or a single score.
+
+The name **Studio** belongs to that learner-facing experience; the repository is the **Studio framework and reference implementation**. See [Positioning the Studio and its ecosystem](docs/POSITIONING_AND_ECOSYSTEM.md) for the audience model, sustainable-service opportunities, and rules for any future feedback channel.
 
 See `docs/LEARNING_GUIDE.md` before using timed practice.

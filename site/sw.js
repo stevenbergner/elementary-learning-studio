@@ -8,12 +8,28 @@ function previewScope(pathname) {
 }
 
 // Each preview keeps its own cache and may only clean up caches it owns.
-const VERSION = "v29";
+const VERSION = "v30";
 const SCOPE = previewScope(new URL(self.registration.scope).pathname);
 const CACHE_PREFIX = SCOPE ? `elementary-learning-studio:${SCOPE}:` : "elementary-learning-studio-";
 const CACHE = `${CACHE_PREFIX}${VERSION}`;
 const ownsCache = (key) => (SCOPE ? key.startsWith(CACHE_PREFIX) : /^elementary-learning-studio-v\d+$/.test(key));
-const CORE = ["./", "index.html", "styles.css", "app.js", "number-grid.js", "sudoku.js", "manifest.webmanifest", "icon.svg"];
+const CORE = [
+  "./", "index.html", "voice-privacy.html", "styles.css", "app.js", "number-grid.js", "sudoku.js",
+  "voice-intent.js", "manifest.webmanifest", "icon.svg",
+  "vendor/local-speech-interface/index.js",
+  "vendor/local-speech-interface/capabilities.js",
+  "vendor/local-speech-interface/domain-grammar.js",
+  "vendor/local-speech-interface/dom-bridge.js",
+  "vendor/local-speech-interface/integer-domain.js",
+  "vendor/local-speech-interface/local-policy.js",
+  "vendor/local-speech-interface/local-session.js",
+  "vendor/local-speech-interface/loudness-endpointer.js",
+  "vendor/local-speech-interface/page-control.js",
+  "vendor/local-speech-interface/recognition-input.js",
+  "vendor/local-speech-interface/speech-event.js",
+  "vendor/local-speech-interface/stable-interim.js",
+  "audio/speech-carrier-en.wav",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));

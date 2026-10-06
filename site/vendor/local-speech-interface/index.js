@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: MPL-2.0
+export { EVENT_TYPES, PROTOCOL, createSpeechEvent, validateSpeechEvent } from "./speech-event.js";
+export { LOCAL_SESSION_POLICIES, assertLocalOnlyRecognition } from "./local-policy.js";
+export { DOM_EVENT_NAME, dispatchSpeechEvent } from "./dom-bridge.js";
+export { LocalSpeechSession, adaptiveFlushDelay } from "./local-session.js";
+export { DEFAULT_LOUDNESS_ENDPOINTING, LoudnessEndpointer, levelDbfs } from "./loudness-endpointer.js";
+export { RecognitionInput, openRecognitionInput, stripCarrierTokens } from "./recognition-input.js";
+export { StableInterimCommitter } from "./stable-interim.js";
+export {
+  CAPABILITY_KEYS,
+  FIREFOX_WEB_SPEECH_CAPABILITIES,
+  PARAKEET_CLI_CAPABILITIES,
+  createCapabilityManifest,
+  supportsCapability,
+} from "./capabilities.js";
+export { compileSurfaceDomain, normalizeDomainSurface, resolveDomainEvidence } from "./domain-grammar.js";
+export { PAGE_CONTROL_OPERATIONS, applyPageControl, proposePageControl, proposePageControls } from "./page-control.js";
+export {
+  INTEGER_DOMAIN_FORMS,
+  INTEGER_DOMAIN_LOCALES,
+  integerDomain,
+  renderIntegerWords,
+} from "./integer-domain.js";

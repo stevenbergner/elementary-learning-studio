@@ -59,4 +59,14 @@ The downloadable SVG is called a “practice award,” not an Open Badge. Open B
 - Wacom Ink SDK for Web: <https://developer-docs.wacom.com/docs/sdk-for-ink/web/overview>
 - MyScript iinkJS integration: <https://developer.myscript.com/docs/interactive-ink/4.0/web/overview/integration/>
 
-The site currently has no voice input. The parked voice work on the `voice-integration` branch used browser capability detection and a closed vocabulary; it does not bundle Voxtral. Pen events are feasible, but handwriting recognition remains deferred because the reviewed production integration requires a recognition service and credentials. See `docs/INPUT_METHODS.md` for the usability and privacy boundary.
+Speech carrier (`site/audio/speech-carrier-en.wav`), a synthesized “okay” used only as recognizer input by the opt-in single-word help:
+
+- Piper TTS engine (`piper-tts`, GPL-3.0-or-later): <https://github.com/OHF-Voice/piper1-gpl>
+- Voice `en_US-ljspeech-high` (MIT): <https://huggingface.co/rhasspy/piper-voices>
+- LJ Speech dataset (public domain): <https://keithito.com/LJ-Speech-Dataset/>
+- GNU GPL FAQ on program output: <https://www.gnu.org/licenses/gpl-faq.en.html>
+- Apple macOS Sequoia Software License Agreement, section 2F on system voices:
+  <https://www.apple.com/legal/sla/docs/macOSSequoia.pdf>
+- Exact versions, checksums, and processing: `site/audio/speech-carrier-en.md`
+
+The implemented voice input uses browser capability detection and a closed vocabulary. It prefers Web Speech on-device language packs through `available()`, `install()`, and `processLocally`, while clearly labelling browser-service fallback. It does not bundle Voxtral or another third-party recognizer. Pen events are feasible, but handwriting recognition remains deferred because the reviewed production integration requires a recognition service and credentials. See `docs/INPUT_METHODS.md` for the usability and privacy boundary.

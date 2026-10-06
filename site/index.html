@@ -4,12 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f1e3">
-    <meta name="description" content="Original, printable and browser-based elementary mathematics practice for families and classrooms.">
+    <meta name="description" content="An open framework for learner-owned studios, beginning with private, printable and browser-based elementary mathematics practice.">
     <title>Elementary Learning Studio</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
-    <script src="app.js" defer></script>
+    <script src="app.js" type="module"></script>
     <script src="number-grid.js" type="module"></script>
   </head>
   <body>
@@ -25,6 +25,7 @@
         <a href="#number-grid">Number grid</a>
         <a href="#print">Print</a>
         <a href="#approach">Approach</a>
+        <a href="#privacy">Privacy</a>
         <a class="source-link" href="https://github.com/stevenbergner/elementary-learning-studio">View source</a>
       </nav>
     </header>
@@ -32,7 +33,7 @@
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Open learning materials for growing minds</p>
+          <p class="eyebrow">An open framework for learner-owned studios</p>
           <h1 id="hero-title">Math you can <em>touch, try,</em> and make your own.</h1>
           <p class="lede">Short, original activities for elementary learners—on paper, on a tablet, or with a school laptop. Accuracy and strategy come before speed.</p>
           <div class="hero-actions">
@@ -147,6 +148,96 @@
               <p class="award-note">The award is a personal celebration, not a graded or verified credential.</p>
             </div>
           </div>
+
+          <aside class="input-mode-panel" aria-labelledby="input-mode-title">
+            <div class="voice-introduction">
+              <span class="microphone-glyph" aria-hidden="true"></span>
+              <div>
+                <p class="control-label">Optional page-wide input</p>
+                <h3 id="input-mode-title">Local voice</h3>
+                <p>Skip it and every activity still works by keyboard or touch. Turn it on once and supported activities across this page can use recognized words.</p>
+                <p class="voice-availability" id="voice-availability">Checking this browser…</p>
+              </div>
+            </div>
+
+            <div class="voice-quick-actions">
+              <button class="button button-secondary voice-button" id="voice-toggle" type="button" aria-pressed="false" disabled>Start optional voice</button>
+              <label for="voice-language">Recognition language
+                <select id="voice-language" disabled>
+                  <option value="en-US">English</option>
+                  <option value="fr-FR">Français</option>
+                  <option value="de-DE">Deutsch</option>
+                  <option value="vi-VN">Tiếng Việt</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="voice-panel" id="voice-panel">
+              <div class="voice-signal" id="voice-signal" data-state="off" role="status" aria-live="polite">
+                <span class="voice-signal-mark" aria-hidden="true"><span></span></span>
+                <span>
+                  <strong id="voice-signal-label">Microphone off</strong>
+                  <small id="voice-signal-detail">No audio is being captured.</small>
+                </span>
+              </div>
+              <p class="voice-target" id="voice-target">Current speech target: arithmetic answer.</p>
+              <div class="voice-download" id="voice-download" hidden>
+                <progress aria-label="Browser language pack download"></progress>
+                <span id="voice-download-label">The browser is downloading its local language pack. It does not report a percentage.</span>
+              </div>
+              <p class="voice-status" id="voice-status" aria-live="polite">Checking browser support…</p>
+              <p class="voice-privacy" id="voice-privacy">Completely optional. Voice is enabled only when the browser verifies on-device recognition. After the language pack is installed, this site sends no microphone audio or recognized text anywhere.</p>
+              <details class="voice-options">
+                <summary>Voice options and phrases</summary>
+                <label class="voice-option" for="voice-auto-check">
+                  <input id="voice-auto-check" type="checkbox">
+                  <span><strong>Check spoken answers immediately</strong><small>Off by default. Otherwise, say “check” or “done” when ready.</small></span>
+                </label>
+                <label class="voice-option" for="voice-pointer-follow">
+                  <input id="voice-pointer-follow" type="checkbox">
+                  <span><strong>Let the number-grid target follow the mouse</strong><small>Experimental and off by default. Click or keyboard focus remains the standard selection method.</small></span>
+                </label>
+                <label class="voice-option" for="voice-short-word-help">
+                  <input id="voice-short-word-help" type="checkbox">
+                  <span><strong>Help Firefox finish single words</strong><small>Experimental and English only. Off by default on the published site; on by default when the studio runs on this computer for development. Firefox can hold back a lone word such as “four” until you say something else. With this option the studio opens the microphone itself, measures only loudness on this device to notice when you stop, and then plays a short built-in “okay” into the recognizer (not your speakers) so the word is completed. The studio removes that “okay” from the text. Audio samples are not retained, recorded, stored, or sent.</small></span>
+                </label>
+                <p class="voice-heard" id="voice-heard">Recognized words will appear here and in the persistent status strip while voice is on.</p>
+                <p>Say a number to enter it, or finish a longer thought with the answer: “I think the answer is fifteen.” Equivalent number forms in French, German, and Vietnamese are supported. “Check” validates and stays on the question; “next question” or “next” validates and advances only when the answer is correct. The longer phrase can be easier for a speech engine to detect than one very short word. “Skip” is recognized but acts only when an activity declares what skipping means; this practice set currently leaves it unavailable. In the number grid, exact direction sequences such as “up, up, left” or “nach oben und links” move among blank cells. If immediate checking is enabled, a correct spoken answer advances automatically; after the tenth answer, the set completes. Say “stop” to turn voice input off.</p>
+                <p>The studio requires an on-device language pack and never falls back to an online speech service. A successful transcription can support language practice, but it is not a standardized pronunciation score.</p>
+                <p><a href="voice-privacy.html">Read the local voice and browser brief</a></p>
+              </details>
+              <details class="voice-debug" id="voice-debug">
+                <summary>Developer voice trace</summary>
+                <p>This optional local diagnostic records recognition lifecycle events, browser text, studio decisions, and measured timing. It records no audio and uploads nothing. The trace stays in memory unless you explicitly save its JSON file.</p>
+                <label class="voice-debug-toggle" for="voice-debug-enabled">
+                  <input id="voice-debug-enabled" type="checkbox">
+                  <span>Record local diagnostic events for this tab</span>
+                </label>
+                <label class="voice-debug-toggle" id="voice-debug-background-label" for="voice-debug-background" hidden>
+                  <input id="voice-debug-background" type="checkbox">
+                  <span>Keep local voice active when this developer tab is in the background</span>
+                </label>
+                <label class="voice-debug-toggle" id="voice-short-word-method-label" for="voice-short-word-method" hidden>
+                  <span>Single-word release method</span>
+                  <select id="voice-short-word-method">
+                    <option value="finalize">Finalize after silence</option>
+                    <option value="carrier">Spoken carrier (“okay”)</option>
+                  </select>
+                </label>
+                <div class="voice-debug-output" id="voice-debug-output" hidden>
+                  <p class="voice-debug-summary" id="voice-debug-summary">No utterances observed yet.</p>
+                  <div class="voice-debug-toolbar">
+                    <span id="voice-debug-state">No recognition events yet.</span>
+                    <span class="voice-debug-actions">
+                      <button class="text-button" id="voice-debug-export" type="button" disabled>Save diagnostic JSON</button>
+                      <button class="text-button" id="voice-debug-clear" type="button">Clear trace</button>
+                    </span>
+                  </div>
+                  <ol class="voice-trace" id="voice-trace" aria-label="Voice recognition events"></ol>
+                </div>
+              </details>
+            </div>
+          </aside>
         </div>
 
         <section class="progress-panel" id="progress-panel" aria-labelledby="progress-title" hidden>
@@ -243,6 +334,8 @@
             <h3>How to play</h3>
             <p>Tap or click a blank cell, then choose 1–4 with the number buttons or the keyboard. Arrow keys move between cells, and Backspace erases.</p>
             <p>The fixed clues never change. When every cell is filled, check the grid: any cell that needs another look is highlighted, and the solution is never revealed.</p>
+            <p>With optional local voice on, the selected cell is also the speech target: say 1–4, an exact direction sequence such as “up, up, left”, or “check”. Voice drives the same board through its public controls and never changes fixed clues.</p>
+            <a class="text-link" href="#input-mode-title">Go to voice controls <span aria-hidden="true">↑</span></a>
           </aside>
         </div>
       </section>
@@ -308,6 +401,40 @@
         </div>
       </section>
 
+      <section class="privacy-section" id="privacy" aria-labelledby="privacy-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">The studio happens here</p>
+            <h2 id="privacy-title">A microphone without a listening service</h2>
+          </div>
+          <p>The repository is the maker and governance layer. What it produces is the studio: a learner-owned experience running on the learner’s own device.</p>
+        </div>
+        <div class="privacy-grid">
+          <article>
+            <span class="privacy-step">1</span>
+            <h3>You choose when to listen</h3>
+            <p>Voice starts only after a deliberate button press and the browser’s microphone permission. It is optional, stays available across supported activities, and stops when asked or when the page is hidden.</p>
+          </article>
+          <article>
+            <span class="privacy-step">2</span>
+            <h3>The browser proves it is local</h3>
+            <p>The studio requires the standardized local-processing flag and checks for an installed on-device language pack. If either check fails, voice stays off.</p>
+          </article>
+          <article>
+            <span class="privacy-step">3</span>
+            <h3>No silent cloud fallback</h3>
+            <p>Microphone audio is processed by the browser on this device. The studio receives recognized text, does not keep audio, and does not send either one to a server.</p>
+          </article>
+        </div>
+        <div class="privacy-brief-link">
+          <div>
+            <strong>Firefox Nightly and current desktop Chrome can provide this local contract.</strong>
+            <p>Support is detected by capability, not by browser brand. Mobile browser support is not ready yet.</p>
+          </div>
+          <a class="button button-secondary" href="voice-privacy.html">Read the evidence and limitations</a>
+        </div>
+      </section>
+
       <section class="open-note" aria-labelledby="open-title">
         <div>
           <p class="eyebrow">Open by design</p>
@@ -318,9 +445,19 @@
       </section>
     </main>
 
+    <section class="voice-dock" id="voice-dock" data-state="off" aria-label="Active local voice status" hidden>
+      <span class="voice-dock-mark" aria-hidden="true"><span></span></span>
+      <div class="voice-dock-copy" aria-live="polite">
+        <strong id="voice-dock-status">Preparing optional local voice…</strong>
+        <span id="voice-dock-heard">Waiting for browser text…</span>
+        <small id="voice-dock-target">Current speech target: arithmetic answer.</small>
+      </div>
+      <button class="button voice-dock-stop" id="voice-dock-stop" type="button">Stop voice</button>
+    </section>
+
     <footer>
       <p><strong>Elementary Learning Studio</strong><br>Made for thoughtful practice at home and at school.</p>
-      <p><a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/LICENSE">Code license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/CONTENT_LICENSE.md">Content license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/docs/SOURCES.md">Sources</a></p>
+      <p><a href="voice-privacy.html">Voice privacy</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/LICENSE">Code license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/CONTENT_LICENSE.md">Content license</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/docs/SOURCES.md">Sources</a></p>
     </footer>
   </body>
 </html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f1e3">
+    <meta name="description" content="How Elementary Learning Studio keeps optional speech recognition on the learner's device.">
+    <title>Local voice and privacy · Elementary Learning Studio</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to the privacy brief</a>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Elementary Learning Studio home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Elementary Learning Studio</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="./#practice">Practice</a>
+        <a href="./#privacy">Privacy</a>
+        <a class="source-link" href="https://github.com/stevenbergner/elementary-learning-studio">View source</a>
+      </nav>
+    </header>
+
+    <main id="main" class="brief-page">
+      <header class="brief-hero">
+        <p class="eyebrow">Information brief · checked 4 October 2026</p>
+        <h1>Local voice means the microphone does not become a cloud service.</h1>
+        <p class="lede">Voice is optional, visible, and fail-closed. The studio enables it only after the browser proves that recognition for the selected language can run on this device.</p>
+      </header>
+
+      <article class="brief-content">
+        <p class="brief-summary"><strong>The short promise:</strong> while the studio reports <em>Private on-device speech ready</em>, microphone audio is processed by the browser on this device. The page receives recognized text, does not receive or record the audio stream, and does not send the audio or text anywhere.</p>
+
+        <section aria-labelledby="boundary-title">
+          <h2 id="boundary-title">The exact privacy boundary</h2>
+          <p>The studio requests recognition with <code>processLocally: true</code>, checks the browser’s local language-pack status, and refuses to start if that contract is unavailable. It does not silently fall back to the older online form of the Web Speech API.</p>
+          <p>The browser may use the network to load this website and, after a separate browser permission, to download a language model. That download contains no microphone audio. Once the page and model are cached, the learning activity and recognition can operate without a recognition server.</p>
+          <p><strong>Developer diagnostics are explicit and local.</strong> When a developer turns the trace on, the page keeps recognition lifecycle timestamps, browser-provided transcripts, and accepted or rejected actions in this tab’s memory. It still records no audio and uploads nothing. The trace disappears on reload unless the developer explicitly downloads its JSON file to the same device.</p>
+          <p><strong>Optional single-word help changes who holds the microphone stream.</strong> By default the browser captures the microphone and gives the page only text. If you turn on <em>Help Firefox finish single words</em> (English, off by default), the page itself opens the microphone and passes it to the browser’s on-device recognizer. While that runs, the page computes only a loudness level from short blocks of sound to notice when you stop speaking. It does not retain those samples. After a short silence it plays a built-in spoken “okay” into the recognizer’s input, never your speakers, because Firefox otherwise holds back a lone word such as “four”. The page removes that “okay” from the recognized text. Nothing is recorded, stored, or sent, and the stream closes when voice stops.</p>
+          <p class="caution"><strong>Scope matters:</strong> “local voice” is a claim about microphone recognition in this studio. Clicking an outside link or loading a new version of the site is still ordinary web traffic.</p>
+        </section>
+
+        <section aria-labelledby="browser-title">
+          <h2 id="browser-title">Browser support is a capability, not a logo</h2>
+          <div class="table-wrap brief-table" tabindex="0" aria-label="Browser support table; scroll horizontally on a small screen">
+            <table>
+              <thead><tr><th>Browser</th><th>Current position</th><th>What the studio does</th></tr></thead>
+              <tbody>
+                <tr><td>Firefox Nightly on desktop</td><td>Mozilla’s preview implementation uses a sandboxed native inference process. macOS can use Metal acceleration.</td><td>Checks and installs the browser-managed local pack, then listens locally.</td></tr>
+                <tr><td>Chrome 139+ on desktop</td><td>Chrome exposes the standardized local-processing and language-pack methods on desktop.</td><td>Uses them only when the browser confirms a local pack. Legacy online-only speech is rejected.</td></tr>
+                <tr><td>Firefox or Chrome on Android</td><td>The required web-facing local API is not currently available.</td><td>Keeps voice disabled; keyboard and touch remain available.</td></tr>
+                <tr><td>Safari</td><td>The required local-processing contract is not currently exposed to web pages.</td><td>Keeps voice disabled.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Compatibility changes quickly. The studio tests the API at runtime instead of assuming support from a browser name or version.</p>
+        </section>
+
+        <section aria-labelledby="language-title">
+          <h2 id="language-title">Language learning without pretending to grade an accent</h2>
+          <p>The current Firefox model manifest explicitly supports English, French, German, and Vietnamese. The studio offers those four choices. Speaking a number fills the answer and waits for “check” or “done” by default. An optional immediate-checking mode checks the number and advances after a correct answer. Seeing the intended text and action can provide immediate, low-stakes evidence that this recognizer found the speech intelligible.</p>
+          <p>That is not the same as measuring pronunciation quality. Recognition can be affected by microphones, room noise, age, accent, dialect, disability, and model bias. The studio therefore treats transcription as practice feedback, never as a grade, diagnosis, or claim that one accent is the correct one.</p>
+        </section>
+
+        <section aria-labelledby="control-title">
+          <h2 id="control-title">Learner control is part of the implementation</h2>
+          <ul>
+            <li>Keyboard and touch are always the default and remain fully usable.</li>
+            <li>A learner deliberately presses a voice button and answers the browser’s microphone prompt.</li>
+            <li>The selected model download requires a separate browser-controlled confirmation.</li>
+            <li>The microphone state remains visible and voice can be stopped immediately.</li>
+            <li>Voice remains optional across supported activities and stops when asked or when the page is hidden.</li>
+            <li>No learner account, audio recording, analytics script, or advertising tracker is used.</li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="cost-title">
+          <h2 id="cost-title">What “free and local” costs</h2>
+          <p>There is no per-minute speech API bill for this path. The cost moves to the device: a one-time model download, disk space, memory, processor or GPU time, battery, and the engineering needed to support an experimental interface.</p>
+          <p>Mozilla’s current manifest lists an approximately 141 MB English streaming model and a 785 MB multilingual model. Those artifacts and browser behavior can change, so the browser’s own download prompt is authoritative.</p>
+        </section>
+
+        <section aria-labelledby="sources-title">
+          <h2 id="sources-title">Primary sources</h2>
+          <ul>
+            <li><a href="https://firefox-source-docs.mozilla.org/media/SpeechRecognition.html">Mozilla: Gecko on-device speech-recognition architecture</a></li>
+            <li><a href="https://searchfox.org/firefox-main/source/dom/media/webspeech/recognition/models.yaml">Mozilla source: current speech model and language manifest</a></li>
+            <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API/Using_the_Web_Speech_API">MDN: using on-device Web Speech</a></li>
+            <li><a href="https://github.com/mdn/browser-compat-data/blob/main/api/SpeechRecognition.json">MDN browser-compatibility data</a></li>
+            <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2072585">Mozilla: desktop release tracking</a></li>
+            <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1244242">Mozilla: Android implementation tracking</a></li>
+          </ul>
+        </section>
+      </article>
+    </main>
+
+    <footer>
+      <p><strong>Elementary Learning Studio</strong><br>Made for thoughtful practice at home and at school.</p>
+      <p><a href="./">Return to the studio</a> · <a href="https://github.com/stevenbergner/elementary-learning-studio/blob/main/docs/LOCAL_VOICE_AND_AI.md">Technical research brief</a></p>
+    </footer>
+  </body>
+</html>
