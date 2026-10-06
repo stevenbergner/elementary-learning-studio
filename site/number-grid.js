@@ -1,7 +1,9 @@
 import { CHILD_SUDOKU_PUZZLES, checkSudokuValues } from "./sudoku.js";
 
 // A child-sized 4×4 Sudoku for touch, mouse, and keyboard. Its state lives
-// only in this page; nothing is stored or sent.
+// only in this page; nothing is stored or sent. Other input methods drive the
+// same board through the exported numberGrid controller and can follow the
+// selection through the "number-grid:select" event.
 const grid = document.querySelector("#sudoku-grid");
 const feedback = document.querySelector("#sudoku-feedback");
 const label = document.querySelector("#sudoku-label");
@@ -31,17 +33,21 @@ function select(index, { focus = false } = {}) {
   });
   if (focus) cellAt(index)?.focus({ preventScroll: true });
   say(`${place(index)} is ready.`);
+  grid.dispatchEvent(new CustomEvent("number-grid:select", {
+    bubbles: true,
+    detail: Object.freeze({ index, row: Math.floor(index / 4) + 1, column: (index % 4) + 1 }),
+  }));
   return true;
 }
 
-function enter(value) {
+function enter(value, { source = "" } = {}) {
   const { puzzle } = CHILD_SUDOKU_PUZZLES[puzzleIndex];
   let index = selected;
   if (index < 0 || puzzle[index]) {
     // Without a selection, fill the first blank cell rather than ignore the tap.
     index = puzzle.findIndex((given, candidate) => !given && !values[candidate]);
     if (index < 0) index = puzzle.findIndex((given) => !given);
-    if (index < 0) return;
+    if (index < 0) return false;
     select(index);
   }
   values[index] = value;
@@ -49,7 +55,8 @@ function enter(value) {
   cell.textContent = value ? String(value) : "";
   cell.classList.remove("is-wrong", "is-correct");
   cell.setAttribute("aria-label", `${place(index)}${value ? `, ${value}` : ", blank"}`);
-  say(value ? `${value} entered. Keep thinking, or check the grid when ready.` : "The selected cell is blank again.");
+  say(value ? `${value} entered${source ? ` by ${source}` : ""}. Keep thinking, or check the grid when ready.` : "The selected cell is blank again.");
+  return true;
 }
 
 function check() {
@@ -63,6 +70,24 @@ function check() {
   if (result.correct) say("The whole grid works. Every row, column, and box has 1–4.", "success");
   else if (result.wrong.length) say("Some entries need another look. The cells to revisit are highlighted.", "error");
   else say(`${result.empty.length} blank ${result.empty.length === 1 ? "cell remains" : "cells remain"}.`);
+  return result;
+}
+
+// Moves the selection to the nearest blank cell in a direction, skipping
+// fixed clues; stays put at the edge of the grid.
+function move(direction) {
+  const vector = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[direction];
+  if (!vector || selected < 0) return false;
+  const { puzzle } = CHILD_SUDOKU_PUZZLES[puzzleIndex];
+  let row = Math.floor(selected / 4) + vector[0];
+  let column = (selected % 4) + vector[1];
+  while (row >= 0 && row < 4 && column >= 0 && column < 4) {
+    const candidate = row * 4 + column;
+    if (!puzzle[candidate]) return select(candidate, { focus: true });
+    row += vector[0];
+    column += vector[1];
+  }
+  return false;
 }
 
 function moveFocus(index, key) {
@@ -117,6 +142,19 @@ document.querySelector("#sudoku-clear").addEventListener("click", () => {
 document.querySelector("#sudoku-new").addEventListener("click", () => {
   render(puzzleIndex + 1);
   select(CHILD_SUDOKU_PUZZLES[puzzleIndex].puzzle.findIndex((value) => !value), { focus: true });
+});
+
+export const numberGrid = Object.freeze({
+  get selectedIndex() { return selected; },
+  isGiven: (index) => Boolean(CHILD_SUDOKU_PUZZLES[puzzleIndex].puzzle[index]),
+  select,
+  enter(value, options) {
+    if (!Number.isInteger(value) || value < 0 || value > 4) return false;
+    return enter(value, options);
+  },
+  move,
+  check,
+  notify: say,
 });
 
 render();

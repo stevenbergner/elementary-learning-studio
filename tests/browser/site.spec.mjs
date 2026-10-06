@@ -159,6 +159,29 @@ test("supports a uniquely solvable child Sudoku by mouse, touch, and keyboard", 
 });
 
 
+test("lets another input method drive the number grid through its controller", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { numberGrid } = await import("./number-grid.js");
+    const events = [];
+    document.addEventListener("number-grid:select", ({ detail }) => events.push(detail));
+    const blank = [...document.querySelectorAll(".sudoku-cell")].findIndex((cell) => !cell.classList.contains("is-given"));
+    return {
+      selected: numberGrid.select(blank),
+      selectedIndex: numberGrid.selectedIndex,
+      rejected: numberGrid.enter(7),
+      entered: numberGrid.enter(2, { source: "a test" }),
+      text: document.querySelectorAll(".sudoku-cell")[blank].textContent,
+      feedback: document.querySelector("#sudoku-feedback").textContent,
+      blank,
+      events,
+    };
+  });
+  expect(result).toMatchObject({ selected: true, selectedIndex: result.blank, rejected: false, entered: true, text: "2" });
+  expect(result.feedback).toContain("2 entered by a test");
+  expect(result.events).toHaveLength(1);
+});
+
+
 test("keeps the portrait-phone practice flow in a clear vertical order", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "phone-portrait-chromium", "Portrait-phone layout check");
   await page.locator("#practice").scrollIntoViewIfNeeded();
