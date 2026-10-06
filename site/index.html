@@ -10,6 +10,7 @@
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
+    <script src="number-grid.js" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to the learning studio</a>
@@ -21,6 +22,7 @@
       </a>
       <nav aria-label="Main navigation">
         <a href="#practice">Practice</a>
+        <a href="#number-grid">Number grid</a>
         <a href="#print">Print</a>
         <a href="#approach">Approach</a>
         <a class="source-link" href="https://github.com/stevenbergner/elementary-learning-studio">View source</a>
@@ -205,6 +207,44 @@
           </div>
           <p class="privacy-note">Downloads are created locally. Nothing is uploaded or sent to a school, teacher, or server.</p>
         </section>
+      </section>
+
+      <section class="sudoku-section" id="number-grid" aria-labelledby="number-grid-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Point, tap, or type</p>
+            <h2 id="number-grid-title">A small number grid</h2>
+          </div>
+          <p>This child-sized 4×4 Sudoku uses only 1–4. Each row, column, and outlined 2×2 box needs every number once. Select a blank cell by click, touch, or keyboard, then enter a number.</p>
+        </div>
+
+        <div class="sudoku-shell">
+          <div class="sudoku-card">
+            <div class="sudoku-toolbar">
+              <span id="sudoku-label">Easy grid</span>
+              <button class="text-button" id="sudoku-new" type="button">New grid</button>
+            </div>
+            <div class="sudoku-grid" id="sudoku-grid" role="grid" aria-label="Four by four number grid"></div>
+            <div class="sudoku-keypad" role="group" aria-label="Number grid controls">
+              <button type="button" data-sudoku-value="1">1</button>
+              <button type="button" data-sudoku-value="2">2</button>
+              <button type="button" data-sudoku-value="3">3</button>
+              <button type="button" data-sudoku-value="4">4</button>
+              <button type="button" data-sudoku-value="0" aria-label="Erase selected cell">Erase</button>
+            </div>
+            <p class="sudoku-feedback" id="sudoku-feedback" aria-live="polite">Select a blank cell to begin.</p>
+            <div class="sudoku-actions">
+              <button class="button button-primary" id="sudoku-check" type="button">Check the grid</button>
+              <button class="button button-quiet" id="sudoku-clear" type="button">Clear my entries</button>
+            </div>
+          </div>
+
+          <aside class="sudoku-note">
+            <h3>How to play</h3>
+            <p>Tap or click a blank cell, then choose 1–4 with the number buttons or the keyboard. Arrow keys move between cells, and Backspace erases.</p>
+            <p>The fixed clues never change. When every cell is filled, check the grid: any cell that needs another look is highlighted, and the solution is never revealed.</p>
+          </aside>
+        </div>
       </section>
 
       <section class="print-section" id="print" aria-labelledby="print-title">

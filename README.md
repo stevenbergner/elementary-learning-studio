@@ -8,6 +8,8 @@ An open, reproducible studio for creating thoughtful elementary mathematics prac
 
 The progress panel shows first-try accuracy, retries, hints, facts worth revisiting, confidence, and recent sessions. Timing is opt-in per set and hidden in the standard view. Families can download ordinary CSV or xAPI-compatible JSON without sending learner data to a server. A downloadable practice award is deliberately labelled as an informal celebration, not a graded or verified credential.
 
+A child-sized 4×4 Sudoku (numbers 1–4) offers a short logic break. Click, touch, keyboard, and on-screen number buttons all select and fill the same cells, and checking highlights cells to revisit without revealing the solution.
+
 The studio has no voice input and never asks for the microphone: keyboard and touch are the dependable inputs. Voice input was explored and is parked on the `voice-integration` branch until it works reliably. See [Input methods and privacy](docs/INPUT_METHODS.md) for that decision and for deferring handwriting recognition.
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.

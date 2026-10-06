@@ -8,12 +8,12 @@ function previewScope(pathname) {
 }
 
 // Each preview keeps its own cache and may only clean up caches it owns.
-const VERSION = "v28";
+const VERSION = "v29";
 const SCOPE = previewScope(new URL(self.registration.scope).pathname);
 const CACHE_PREFIX = SCOPE ? `elementary-learning-studio:${SCOPE}:` : "elementary-learning-studio-";
 const CACHE = `${CACHE_PREFIX}${VERSION}`;
 const ownsCache = (key) => (SCOPE ? key.startsWith(CACHE_PREFIX) : /^elementary-learning-studio-v\d+$/.test(key));
-const CORE = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest", "icon.svg"];
+const CORE = ["./", "index.html", "styles.css", "app.js", "number-grid.js", "sudoku.js", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));

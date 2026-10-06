@@ -116,6 +116,45 @@ test("keeps the page inside the viewport and touch controls comfortably sized", 
 });
 
 
+test("supports a uniquely solvable child Sudoku by mouse, touch, and keyboard", async ({ page }) => {
+  await page.locator("#number-grid").scrollIntoViewIfNeeded();
+  const cells = page.locator(".sudoku-cell");
+  await expect(cells).toHaveCount(16);
+  await expect(page.locator(".sudoku-cell.is-given")).toHaveCount(9);
+
+  const editable = page.locator(".sudoku-cell:not(.is-given)").first();
+  await editable.hover();
+  await expect(editable).not.toHaveClass(/is-selected/);
+  await editable.click();
+  await expect(editable).toHaveClass(/is-selected/);
+  await page.locator('[data-sudoku-value="2"]').click();
+  await expect(editable).toHaveText("2");
+  await editable.press("Backspace");
+  await expect(editable).toHaveText("");
+
+  const given = page.locator(".sudoku-cell.is-given").first();
+  await given.click();
+  await expect(page.locator("#sudoku-feedback")).toContainText("fixed clue");
+
+  const solution = await page.evaluate(async () => {
+    const { CHILD_SUDOKU_PUZZLES } = await import("./sudoku.js");
+    return [...CHILD_SUDOKU_PUZZLES[0].solution];
+  });
+  for (const cell of await page.locator(".sudoku-cell:not(.is-given)").all()) {
+    const index = Number(await cell.getAttribute("data-sudoku-index"));
+    await cell.click();
+    await cell.press(String(solution[index]));
+  }
+  await page.getByRole("button", { name: "Check the grid" }).click();
+  await expect(page.locator("#sudoku-feedback")).toContainText("whole grid works");
+  await expect(page.locator(".sudoku-cell.is-wrong")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "New grid" }).click();
+  await expect(page.locator("#sudoku-label")).toHaveText("Easy grid 2 of 4");
+  await expect(page.locator(".sudoku-cell.is-selected")).toHaveCount(1);
+});
+
+
 test("keeps the portrait-phone practice flow in a clear vertical order", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "phone-portrait-chromium", "Portrait-phone layout check");
   await page.locator("#practice").scrollIntoViewIfNeeded();

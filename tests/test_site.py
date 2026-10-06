@@ -41,7 +41,7 @@ class SiteTests(unittest.TestCase):
         self.assertTrue((PROJECT_ROOT / "output/pdf/grade4_fluency-starter-pack.pdf").is_file())
 
     def test_scripts_are_local(self) -> None:
-        self.assertEqual(self.parser.scripts, ["app.js"])
+        self.assertEqual(self.parser.scripts, ["app.js", "number-grid.js"])
 
     def test_no_tracking_or_remote_assets(self) -> None:
         lowered = self.html.lower()
