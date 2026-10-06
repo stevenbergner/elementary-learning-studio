@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [desktop-chromium, ipad-webkit, school-laptop-chromium]
+        project: [desktop-chromium, desktop-firefox, ipad-webkit, school-laptop-chromium, phone-portrait-chromium]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -38,10 +38,13 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - run: npm run test:unit
       - name: Install project browser
         run: |
           if [[ "${{ matrix.project }}" == "ipad-webkit" ]]; then
             npx playwright install --with-deps webkit
+          elif [[ "${{ matrix.project }}" == "desktop-firefox" ]]; then
+            npx playwright install --with-deps firefox
           else
             npx playwright install --with-deps chromium
           fi

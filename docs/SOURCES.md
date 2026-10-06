@@ -59,4 +59,4 @@ The downloadable SVG is called a “practice award,” not an Open Badge. Open B
 - Wacom Ink SDK for Web: <https://developer-docs.wacom.com/docs/sdk-for-ink/web/overview>
 - MyScript iinkJS integration: <https://developer.myscript.com/docs/interactive-ink/4.0/web/overview/integration/>
 
-The implemented voice experiment uses browser capability detection and a closed vocabulary. It does not bundle Voxtral or promise on-device recognition. Pen events are feasible, but handwriting recognition remains deferred because the reviewed production integration requires a recognition service and credentials. See `docs/INPUT_METHODS.md` for the usability and privacy boundary.
+The site currently has no voice input. The parked voice work on the `voice-integration` branch used browser capability detection and a closed vocabulary; it does not bundle Voxtral. Pen events are feasible, but handwriting recognition remains deferred because the reviewed production integration requires a recognition service and credentials. See `docs/INPUT_METHODS.md` for the usability and privacy boundary.

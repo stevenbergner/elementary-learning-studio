@@ -1,11 +1,12 @@
 PYTHON ?= python3
 LATEXMK ?= latexmk
+FMTUTIL ?= fmtutil
 PACK ?= grade4_fluency
 SEED ?= 20261002
 TEXMFCONFIG_DIR := $(CURDIR)/tmp/texmf-config
 TEXMFVAR_DIR := $(CURDIR)/tmp/texmf-var
-TEXMF_TREE := {$(TEXMFCONFIG_DIR),$(TEXMFVAR_DIR),/usr/share/texmf,/usr/share/texlive/texmf-dist}
-TEX_ENV := TEXMFCONFIG=$(TEXMFCONFIG_DIR) TEXMFVAR=$(TEXMFVAR_DIR) TEXMF='$(TEXMF_TREE)'
+TEX_BIN_DIR ?= $(shell $(PYTHON) -c 'from pathlib import Path; import shutil; print(Path(shutil.which("xelatex")).resolve().parent)')
+TEX_ENV := PATH=$(TEX_BIN_DIR):$(PATH) TEXMFCONFIG=$(TEXMFCONFIG_DIR) TEXMFVAR=$(TEXMFVAR_DIR)
 XELATEX_FORMAT := $(TEXMFVAR_DIR)/web2c/xetex/xelatex.fmt
 
 .PHONY: starter publish-example bootstrap-tex test site progress clean
@@ -15,7 +16,7 @@ bootstrap-tex: $(XELATEX_FORMAT)
 $(XELATEX_FORMAT): config/fmtutil.cnf
 	mkdir -p $(TEXMFCONFIG_DIR)/web2c $(TEXMFVAR_DIR)
 	cp config/fmtutil.cnf $(TEXMFCONFIG_DIR)/web2c/fmtutil.cnf
-	$(TEX_ENV) fmtutil-user --byfmt xelatex
+	$(TEX_ENV) $(FMTUTIL) --user --cnffile=$(CURDIR)/config/fmtutil.cnf --byfmt xelatex
 
 starter: bootstrap-tex
 	mkdir -p build

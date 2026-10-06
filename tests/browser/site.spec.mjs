@@ -3,7 +3,14 @@ import { readFile } from "node:fs/promises";
 
 
 async function completeSet(page, { learner = "Timmy", operation = "addition", malformedFirst = false, timing = false } = {}) {
-  await page.locator("#learner-name").fill(learner);
+  // On the emulated phone the page can still be scrolling when the test types;
+  // confirm the name arrived, then leave the field the way a person would.
+  const learnerName = page.locator("#learner-name");
+  await expect(async () => {
+    await learnerName.fill(learner);
+    await expect(learnerName).toHaveValue(learner, { timeout: 500 });
+  }).toPass({ timeout: 5_000 });
+  await learnerName.press("Tab");
   if (timing) await page.locator("#timing-enabled").check();
   await page.locator(`[data-operation="${operation}"]`).click();
 
@@ -109,6 +116,23 @@ test("keeps the page inside the viewport and touch controls comfortably sized", 
 });
 
 
+test("keeps the portrait-phone practice flow in a clear vertical order", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone-portrait-chromium", "Portrait-phone layout check");
+  await page.locator("#practice").scrollIntoViewIfNeeded();
+  const boxes = await page.locator(".practice-controls, .practice-card").evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+  }));
+  expect(boxes[0].bottom).toBeLessThanOrEqual(boxes[1].top + 1);
+  const viewport = page.viewportSize();
+  for (const box of boxes) {
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(viewport.width);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+});
+
+
 test("remembers named learners and exposes meaningful local progress", async ({ page }) => {
   await completeSet(page, { learner: "Timmy", malformedFirst: true, timing: true });
   await page.getByRole("button", { name: "Confidence 4 out of 5" }).click();
@@ -160,15 +184,62 @@ test("downloads an informal award and interoperable xAPI statements", async ({ p
 });
 
 
-test("reveals voice controls only when browser speech recognition exists", async ({ page }) => {
+test("offers no voice input and never asks for the microphone", async ({ page }) => {
   await page.addInitScript(() => {
-    class FakeRecognition extends EventTarget {
+    window.__speechConstructed = 0;
+    window.__microphoneRequests = 0;
+    window.SpeechRecognition = class extends EventTarget {
+      constructor() { super(); window.__speechConstructed += 1; }
       start() {}
       stop() {}
+    };
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia = async () => { window.__microphoneRequests += 1; throw new Error("not expected"); };
     }
-    window.SpeechRecognition = FakeRecognition;
   });
   await page.reload();
-  await expect(page.getByRole("button", { name: "Start voice mode" })).toBeVisible();
-  await expect(page.locator("#voice-language option")).toHaveText(["English", "Français", "Deutsch"]);
+  await expect(page.locator("#answer")).toBeVisible();
+  await expect(page.locator("[id^=voice]")).toHaveCount(0);
+  await page.locator("#answer").fill("1");
+  await page.getByRole("button", { name: "Check my answer" }).click();
+  expect(await page.evaluate(() => [window.__speechConstructed, window.__microphoneRequests])).toEqual([0, 0]);
+});
+
+
+test.describe("branch and commit previews", () => {
+  // Storage isolation is under test here; the service worker is covered by
+  // tests/preview-scope.test.mjs and would bypass the routed preview path.
+  test.use({ serviceWorkers: "block" });
+
+  test("a branch preview keeps its own learner storage apart from the published studio", async ({ page }) => {
+    const store = (name) => JSON.stringify({
+      version: 2,
+      profiles: [{ id: `id-${name}`, name, createdAt: "2026-10-05T00:00:00.000Z" }],
+      sessions: [],
+      lastProfileId: null,
+      legacy: null,
+    });
+    // Serve the same build under /b/demo/ the way a Pages preview would.
+    await page.route("**/b/demo/**", async (route) => {
+      const response = await route.fetch({ url: route.request().url().replace("/b/demo/", "/") });
+      await route.fulfill({ response });
+    });
+
+    await page.goto("/");
+    await page.evaluate((value) => localStorage.setItem("elementary-learning-studio-progress-v2", value), store("Published"));
+    await page.reload();
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Published");
+
+    await page.goto("/b/demo/");
+    await expect(page.locator("#learner-name")).toBeVisible();
+    await expect(page.locator("#known-learners option")).toHaveCount(0);
+
+    await page.evaluate((value) => localStorage.setItem("elementary-learning-studio-progress-v2:preview:b/demo", value), store("Preview"));
+    await page.reload();
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Preview");
+
+    await page.goto("/");
+    await expect(page.locator("#known-learners option")).toHaveAttribute("value", "Published");
+    await expect(page.locator("#known-learners option")).toHaveCount(1);
+  });
 });

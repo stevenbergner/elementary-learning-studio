@@ -1,21 +1,14 @@
 # Input methods and privacy
 
-Checked 2026-10-02.
+Checked 2026-10-02; voice decision updated 2026-10-05.
 
 The browser activity keeps its essential path deliberately small: keyboard and touch are the dependable inputs. Optional methods must remain user-initiated, clearly visible, reversible, and scoped to the current exercise.
 
-## Voice experiment
+## Voice
 
-The site exposes voice mode only when the browser provides the Web Speech API's `SpeechRecognition` interface. The learner must start it explicitly and can stop it at any time. It stops when the page is hidden or the set is completed.
+The site does not offer voice input and never requests the microphone.
 
-The vocabulary is intentionally closed:
-
-- a spoken number fills the current answer field;
-- “check” or “enter” checks the answer;
-- “next” advances only after a correct answer;
-- “stop” turns voice mode off.
-
-Equivalent commands are included for English, French, and German. Voice commands do not navigate away, submit data, modify device settings, or invoke arbitrary actions. The site stores no audio. Browser speech recognition may use an online service, so the interface does not claim that recognition is local or private beyond the site's own behavior.
+An optional, on-device voice mode was developed and tested in Firefox Nightly, including a closed vocabulary of numbers and safe commands. In real use the browser's recognizer could not yet reliably hear isolated short words such as “next”, and an unreliable voice interface is worse for a learner than none. That work is parked on the `voice-integration` branch and continues separately; it will return to the site only when it works reliably.
 
 No speech model is bundled. Mistral documents Voxtral Mini 4B Realtime as a four-billion-parameter model, recommends a vLLM server, and labels its ExecuTorch on-device path untested. That is not a moderate browser download for this project.
 

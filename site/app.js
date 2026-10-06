@@ -1,6 +1,17 @@
 const SET_SIZE = 10;
-const STORAGE_KEY = "elementary-learning-studio-progress-v2";
-const OLD_STORAGE_KEY = "elementary-learning-studio-progress-v1";
+// A branch or commit preview lives under /b/<branch>/ or /s/<sha>/ on the
+// same origin as the published studio. It returns "b/<branch>" or "s/<sha>",
+// and null for the published studio. sw.js carries an identical copy;
+// tests/preview-scope.test.mjs checks that both behave the same.
+function previewScope(pathname) {
+  const match = /(?:^|\/)(b|s)\/([A-Za-z0-9._-]+)\//.exec(String(pathname));
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+// The published studio keeps its original keys. A preview shares the browser
+// origin, so it gets its own keys and never reads or overwrites real progress.
+const STORAGE_SUFFIX = previewScope(location.pathname) ? `:preview:${previewScope(location.pathname)}` : "";
+const STORAGE_KEY = `elementary-learning-studio-progress-v2${STORAGE_SUFFIX}`;
+const OLD_STORAGE_KEY = `elementary-learning-studio-progress-v1${STORAGE_SUFFIX}`;
 const PROJECT_URL = "https://stevenbergner.github.io/elementary-learning-studio/";
 
 const operations = {
@@ -46,8 +57,6 @@ let readyForNext = false;
 let setStartedAt = null;
 let timerStartedAt = null;
 let lastSessionId = null;
-let recognition = null;
-let voiceActive = false;
 
 const elements = Object.fromEntries(Object.entries({
   answer: "#answer", form: "#answer-form", check: "#check-answer", hintButton: "#show-hint", hint: "#hint-text",
@@ -57,7 +66,6 @@ const elements = Object.fromEntries(Object.entries({
   timingEnabled: "#timing-enabled", progressPanel: "#progress-panel", progressLearner: "#progress-learner",
   showTiming: "#show-timing", timingViewLabel: "#timing-view-label", statsGrid: "#stats-grid",
   operationStats: "#operation-stats", factList: "#fact-list", sessionList: "#session-list", legacyNote: "#legacy-note",
-  voiceButton: "#voice-toggle", voicePanel: "#voice-panel", voiceLanguage: "#voice-language", voiceStatus: "#voice-status",
 }).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -128,7 +136,6 @@ function makeSet(kind) {
 function currentQuestion() { return questions[index]; }
 
 function startSet(kind = operation) {
-  stopVoice("Voice mode is off.");
   operation = kind;
   questions = makeSet(operation);
   index = 0;
@@ -202,7 +209,6 @@ function checkAnswer() {
 function nextQuestion() { index < SET_SIZE - 1 ? (index += 1, renderQuestion()) : finishSet(); }
 
 function finishSet() {
-  stopVoice("Voice mode stopped because the set is complete.");
   const profile = ensureProfile();
   const items = questions.map((question) => ({
     a: question.a, b: question.b, answer: question.answer,
@@ -386,58 +392,6 @@ function downloadAward() {
   download(svg, `${safeFilename(session.learner)}-practice-award.svg`, "image/svg+xml;charset=utf-8");
 }
 
-const numberWords = {
-  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
-  zéro: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
-  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, "dix-sept": 17, "dix-huit": 18, "dix-neuf": 19, vingt: 20,
-  null: 0, eins: 1, ein: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10,
-  elf: 11, zwölf: 12, dreizehn: 13, vierzehn: 14, fünfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19, zwanzig: 20,
-};
-function spokenNumber(transcript) {
-  const normalized = transcript.toLocaleLowerCase().trim().replace(/[.,!?]/g, "");
-  const digits = normalized.match(/\b\d{1,3}\b/);
-  if (digits) return Number(digits[0]);
-  return Object.hasOwn(numberWords, normalized) ? numberWords[normalized] : null;
-}
-function handleVoice(transcript) {
-  const phrase = transcript.toLocaleLowerCase().trim();
-  elements.voiceStatus.textContent = `Heard: “${transcript}”`;
-  if (/\b(stop|arrête|arrete|stopp)\b/.test(phrase)) return stopVoice();
-  if (/\b(check|enter|vérifie|verifie|prüfen|pruefen)\b/.test(phrase)) return checkAnswer();
-  if (/\b(next|suivant|weiter)\b/.test(phrase)) {
-    if (readyForNext) nextQuestion(); else elements.voiceStatus.textContent = "Solve and check this question before moving on.";
-    return;
-  }
-  const number = spokenNumber(phrase);
-  if (number !== null && !elements.answer.disabled) { elements.answer.value = String(number); elements.answer.focus(); }
-  else elements.voiceStatus.textContent = "I did not match that to a number or an available command.";
-}
-function setupVoice() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return;
-  recognition = new Recognition();
-  Object.assign(recognition, { continuous: true, interimResults: false, maxAlternatives: 3 });
-  elements.voiceButton.hidden = false;
-  elements.voicePanel.hidden = false;
-  recognition.addEventListener("result", (event) => { const result = event.results[event.results.length - 1]; if (result.isFinal) handleVoice(result[0].transcript); });
-  recognition.addEventListener("error", (event) => stopVoice(`Voice mode stopped: ${event.error}.`));
-  recognition.addEventListener("end", () => { if (voiceActive) { try { recognition.start(); } catch (_) { stopVoice("Voice mode stopped. Start it again when ready."); } } });
-}
-function startVoice() {
-  if (!recognition || voiceActive) return;
-  recognition.lang = elements.voiceLanguage.value; voiceActive = true;
-  elements.voiceButton.textContent = "Stop voice mode"; elements.voiceButton.setAttribute("aria-pressed", "true");
-  elements.voiceStatus.textContent = "Listening only for a number or the shown commands…";
-  try { recognition.start(); } catch (_) { stopVoice("Voice mode could not start in this browser."); }
-}
-function stopVoice(message = "Voice mode is off.") {
-  voiceActive = false;
-  if (elements.voiceButton) { elements.voiceButton.textContent = "Start voice mode"; elements.voiceButton.setAttribute("aria-pressed", "false"); }
-  if (elements.voiceStatus) elements.voiceStatus.textContent = message;
-  if (recognition) { try { recognition.stop(); } catch (_) { /* Already stopped. */ } }
-}
-
 elements.form.addEventListener("submit", (event) => { event.preventDefault(); checkAnswer(); });
 elements.hintButton.addEventListener("click", () => {
   const question = currentQuestion(); elements.hint.textContent = operations[operation].hint(question.a, question.b); question.hintUsed = true; elements.answer.focus();
@@ -474,11 +428,8 @@ document.querySelector("#clear-all").addEventListener("click", () => {
   try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(OLD_STORAGE_KEY); } catch (_) { /* Storage is optional. */ }
   renderLearnerChoices(); renderHistory(); renderProgress();
 });
-elements.voiceButton.addEventListener("click", () => voiceActive ? stopVoice() : startVoice());
-elements.voiceLanguage.addEventListener("change", () => { if (voiceActive) stopVoice("Language changed. Start voice mode again when ready."); });
-document.addEventListener("visibilitychange", () => { if (document.hidden) stopVoice("Voice mode stopped when the page was hidden."); });
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const previousProfile = store.profiles.find((profile) => profile.id === store.lastProfileId);
 if (previousProfile) elements.learnerName.value = previousProfile.name;
-renderLearnerChoices(); renderHistory(); setupVoice(); startSet();
+renderLearnerChoices(); renderHistory(); startSet();

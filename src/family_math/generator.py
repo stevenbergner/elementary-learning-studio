@@ -48,7 +48,11 @@ def _preamble(document_title: str, project_title: str, subtitle: str) -> str:
     return rf"""\documentclass[11pt]{{article}}
 \usepackage[letterpaper,margin=0.55in,headheight=16pt]{{geometry}}
 \usepackage{{fontspec}}
-\setmainfont{{DejaVu Sans}}
+\setmainfont{{texgyreheros-regular.otf}}[
+  BoldFont=texgyreheros-bold.otf,
+  ItalicFont=texgyreheros-italic.otf,
+  BoldItalicFont=texgyreheros-bolditalic.otf
+]
 \usepackage{{array,tabularx,colortbl,xcolor,fancyhdr,lastpage}}
 \usepackage{{tikz}}
 \definecolor{{navy}}{{HTML}}{{16324F}}

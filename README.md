@@ -8,7 +8,7 @@ An open, reproducible studio for creating thoughtful elementary mathematics prac
 
 The progress panel shows first-try accuracy, retries, hints, facts worth revisiting, confidence, and recent sessions. Timing is opt-in per set and hidden in the standard view. Families can download ordinary CSV or xAPI-compatible JSON without sending learner data to a server. A downloadable practice award is deliberately labelled as an informal celebration, not a graded or verified credential.
 
-Browsers that expose speech recognition also receive a small, opt-in voice experiment for English, French, and German numbers and a closed set of safe commands. No speech model is bundled. See [Input methods and privacy](docs/INPUT_METHODS.md) for the design boundary and the decision to defer handwriting recognition.
+The studio has no voice input and never asks for the microphone: keyboard and touch are the dependable inputs. Voice input was explored and is parked on the `voice-integration` branch until it works reliably. See [Input methods and privacy](docs/INPUT_METHODS.md) for that decision and for deferring handwriting recognition.
 
 The generated student PDFs contain no solutions. Answer-key generation is intentionally not part of the default workflow.
 
@@ -92,7 +92,7 @@ npm run test:browser
 | `data/progress.csv` | Family-owned practice log; one row per session |
 | `docs/LEARNING_GUIDE.md` | How to use the materials without making speed the goal |
 | `docs/SOURCES.md` | Source links, curriculum notes, and design decisions |
-| `docs/INPUT_METHODS.md` | Voice, pen, handwriting, and privacy decisions |
+| `docs/INPUT_METHODS.md` | Input, voice, pen, handwriting, and privacy decisions |
 | `build/` | Ignored TeX, PDF, and LaTeX intermediate files from local builds |
 | `output/pdf/` | Small, reviewed example PDFs that are intentionally committed |
 | `site/` | Dependency-free browser practice and project landing page |
@@ -115,6 +115,6 @@ External sources are cited for curriculum context and format research only. This
 - A short reflection box asks for a strategy, not only a score.
 - Progress is compared with the learner's own earlier work, never with another child.
 - A malformed entry is input feedback, not a recorded mathematical mistake.
-- Timing, microphone use, and downloads are each explicit learner or family choices.
+- Timing and downloads are each explicit learner or family choices; the site never requests the microphone or camera.
 
 See `docs/LEARNING_GUIDE.md` before using timed practice.
