@@ -87,6 +87,7 @@ let voiceStartTimer = null;
 let voiceAdvanceTimer = null;
 let interimCommandCommitter = null;
 let recognitionInput = null;
+let pendingAudioContext = null;
 // Recorded in diagnostic exports so a trace shows whether the opt-in ran.
 let shortWordHelpState = { requested: false, active: false, detail: "not requested" };
 // A spoken carrier played only into the recognizer after the learner falls
@@ -1190,22 +1191,26 @@ function shortWordHelpRequested() {
 // speech by loudness and add the carrier. Any failure falls back to the
 // browser's own capture rather than blocking voice.
 async function openShortWordHelp() {
+  const context = pendingAudioContext;
+  pendingAudioContext = null;
   closeShortWordHelp();
+  const release = () => context?.close?.().catch?.(() => {});
   const requested = shortWordHelpRequested();
   shortWordHelpState = {
     requested,
     active: false,
     detail: requested ? "opening" : (elements.voiceShortWordHelp.checked ? "English only" : "not requested"),
   };
-  if (!requested) return;
+  if (!requested) return release();
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext !== "function") {
+    release();
     shortWordHelpState.detail = "Web Audio microphone access unavailable";
     setVoiceStatus("Single-word help needs Web Audio microphone access, which this browser does not provide. Continuing without it.");
     return;
   }
   try {
     const method = shortWordMethod();
-    recognitionInput = await openRecognitionInput({ carrier: method === "carrier" ? SPEECH_CARRIER : null });
+    recognitionInput = await openRecognitionInput({ carrier: method === "carrier" ? SPEECH_CARRIER : null, context });
     shortWordHelpState = {
       requested: true,
       active: true,
@@ -1227,11 +1232,18 @@ async function openShortWordHelp() {
 function closeShortWordHelp() {
   recognitionInput?.close();
   recognitionInput = null;
+  pendingAudioContext?.close?.().catch?.(() => {});
+  pendingAudioContext = null;
   if (elements.voicePrivacy) elements.voicePrivacy.textContent = VOICE_PRIVACY_BROWSER_CAPTURE;
 }
 
 async function startVoice() {
   if (!RecognitionConstructor || voiceActive || voiceStarting) return;
+  // Created here, synchronously inside the click, so the autoplay policy lets
+  // page-side single-word help process audio after the awaits below.
+  if (shortWordHelpRequested() && typeof AudioContext === "function") {
+    try { pendingAudioContext = new AudioContext(); } catch (_) { pendingAudioContext = null; }
+  }
   if (!createSpeechSession()) {
     stopVoice("This browser could not initialize verified local speech. Keyboard and touch still work.");
     return;

@@ -70,7 +70,7 @@ class SiteTests(unittest.TestCase):
             self.assertIn("SPDX-License-Identifier: MPL-2.0", source.read_text(encoding="utf-8"))
         provenance = (vendor / "PROVENANCE.md").read_text(encoding="utf-8")
         self.assertIn("0.5.0", provenance)
-        self.assertIn("ee6f13d", provenance)
+        self.assertIn("7effdad", provenance)
 
     def test_speech_carrier_is_openly_licensed_and_matches_its_provenance(self) -> None:
         import hashlib

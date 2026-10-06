@@ -23,7 +23,13 @@ export default defineConfig({
     },
     {
       name: "desktop-firefox",
-      use: { ...devices["Desktop Firefox"], viewport: { width: 1440, height: 1000 } },
+      use: {
+        ...devices["Desktop Firefox"],
+        viewport: { width: 1440, height: 1000 },
+        // Tests feed synthetic audio without a user gesture; Playwright's
+        // Chromium already allows that, Firefox needs its autoplay prefs.
+        launchOptions: { firefoxUserPrefs: { "media.autoplay.default": 0, "media.autoplay.blocking_policy": 0 } },
+      },
     },
     {
       name: "ipad-webkit",

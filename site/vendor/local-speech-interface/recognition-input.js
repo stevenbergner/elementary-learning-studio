@@ -120,6 +120,11 @@ export async function openRecognitionInput({
   mediaDevices = globalThis.navigator?.mediaDevices,
   constraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
   AudioContextClass = globalThis.AudioContext,
+  // An AudioContext created synchronously inside the user's click is allowed
+  // to run; one created after several awaits may stay suspended under the
+  // browser's autoplay policy. Callers should create it in the click handler.
+  context = null,
+  resumeTimeoutMs = 1000,
   endpointing = {},
   frameMs = 20,
   carrier = null,
@@ -133,19 +138,31 @@ export async function openRecognitionInput({
     if (!Array.isArray(carrier.tokens) || !carrier.tokens.length) throw new TypeError("a carrier needs the tokens the recognizer will produce for it");
     if (!carrier.url && !carrier.buffer) throw new TypeError("a carrier needs a url or an AudioBuffer");
   }
+  const audioContext = context ?? new AudioContextClass();
   const ownsStream = stream === null;
-  const input = stream ?? await mediaDevices.getUserMedia(constraints);
-  const context = new AudioContextClass();
+  let input = null;
   try {
-    if (context.state === "suspended") await context.resume?.();
+    input = stream ?? await mediaDevices.getUserMedia(constraints);
+    if (audioContext.state === "suspended") {
+      // resume() can stay pending until another user gesture; do not hang.
+      let timer;
+      await Promise.race([
+        Promise.resolve(audioContext.resume?.()).catch(() => {}),
+        new Promise((resolve) => { timer = setTimeout(resolve, resumeTimeoutMs); }),
+      ]);
+      clearTimeout(timer);
+      if (audioContext.state === "suspended") {
+        throw new Error("the browser kept page audio suspended (autoplay policy); start voice from a click");
+      }
+    }
     let carrierBuffer = carrier?.buffer ?? null;
     if (carrier?.url) {
       const response = await fetchFn(carrier.url);
       if (!response.ok) throw new Error(`carrier audio is unavailable (${response.status})`);
-      carrierBuffer = await context.decodeAudioData(await response.arrayBuffer());
+      carrierBuffer = await audioContext.decodeAudioData(await response.arrayBuffer());
     }
     return new RecognitionInput({
-      context,
+      context: audioContext,
       stream: input,
       ownsStream,
       endpointer: new LoudnessEndpointer(endpointing),
@@ -158,8 +175,8 @@ export async function openRecognitionInput({
       clearIntervalFn,
     });
   } catch (error) {
-    if (ownsStream) input.getTracks().forEach((track) => track.stop());
-    context.close?.().catch?.(() => {});
+    if (ownsStream) input?.getTracks().forEach((track) => track.stop());
+    audioContext.close?.().catch?.(() => {});
     throw error;
   }
 }
