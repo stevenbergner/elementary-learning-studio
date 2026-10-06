@@ -1,0 +1,25 @@
+name: Request branch preview
+
+# The studio and its previews are deployed only from main. A push to a
+# preview branch asks main's Pages workflow to rebuild; workflow_dispatch is
+# one of the events the repository token may trigger.
+on:
+  push:
+    branches: [voice-integration]
+
+permissions:
+  actions: write
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the Pages workflow on main to rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/pages.yml/dispatches" \
+            -d '{"ref":"main"}'
