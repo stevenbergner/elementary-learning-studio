@@ -2,15 +2,19 @@ import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
 
-async function completeSet(page, { learner = "Timmy", operation = "addition", malformedFirst = false, timing = false } = {}) {
-  // On the emulated phone the page can still be scrolling when the test types;
-  // confirm the name arrived, then leave the field the way a person would.
+// On the emulated phone the page can still be scrolling when the test types;
+// confirm the name arrived, then leave the field the way a person would.
+async function typeLearnerName(page, learner) {
   const learnerName = page.locator("#learner-name");
   await expect(async () => {
     await learnerName.fill(learner);
     await expect(learnerName).toHaveValue(learner, { timeout: 500 });
   }).toPass({ timeout: 5_000 });
   await learnerName.press("Tab");
+}
+
+async function completeSet(page, { learner = "Timmy", operation = "addition", malformedFirst = false, timing = false } = {}) {
+  await typeLearnerName(page, learner);
   if (timing) await page.locator("#timing-enabled").check();
   await page.locator(`[data-operation="${operation}"]`).click();
 
@@ -186,8 +190,7 @@ test("remembers named learners and exposes meaningful local progress", async ({ 
 
   await page.reload();
   await expect(page.locator("#learner-name")).toHaveValue("Timmy");
-  await page.locator("#learner-name").fill("Mia");
-  await page.locator("#learner-name").press("Tab");
+  await typeLearnerName(page, "Mia");
   await expect(page.locator("#known-learners option")).toHaveCount(2);
 });
 
