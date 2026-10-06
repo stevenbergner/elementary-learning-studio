@@ -7,7 +7,11 @@ on:
       - "site/**"
       - "output/pdf/**"
       - "scripts/build_site.py"
+      - "scripts/mark_preview.py"
+      - ".github/preview-branches.txt"
       - ".github/workflows/pages.yml"
+  # A preview branch requests a rebuild through workflow_dispatch, so the
+  # deployment itself always runs from main.
   workflow_dispatch:
 
 permissions:
@@ -29,6 +33,19 @@ jobs:
 
       - name: Assemble static site
         run: python3 scripts/build_site.py --output _site
+
+      - name: Assemble branch previews
+        run: |
+          set -euo pipefail
+          grep -v '^\s*\(#\|$\)' .github/preview-branches.txt | while read -r branch; do
+            if ! git fetch --quiet --depth 1 origin "refs/heads/${branch}:refs/remotes/origin/${branch}"; then
+              echo "::warning::Preview branch ${branch} was not found"
+              continue
+            fi
+            git worktree add --quiet --detach "_preview/${branch}" "origin/${branch}"
+            python3 "_preview/${branch}/scripts/build_site.py" --output "_site/b/${branch}"
+            python3 scripts/mark_preview.py "_site/b/${branch}" --branch "${branch}" --commit "$(git rev-parse "origin/${branch}")"
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

@@ -1,0 +1,4 @@
+# Branches published as previews under /b/<branch>/ next to the main studio.
+# Each preview keeps its own learner storage and offline cache, carries a
+# visible preview banner, and asks search engines not to index it.
+voice-integration
