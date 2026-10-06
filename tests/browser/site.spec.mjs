@@ -1171,6 +1171,16 @@ test.describe("branch and commit previews", () => {
 });
 
 
+async function pageAudioRuns(page) {
+  return page.evaluate(async () => {
+    const context = new AudioContext();
+    await Promise.race([context.resume(), new Promise((resolve) => setTimeout(resolve, 1000))]);
+    const running = context.state === "running";
+    await context.close();
+    return running;
+  });
+}
+
 test.describe("opt-in single-word help", () => {
   // The carrier request must reach the routed fake, not the service worker.
   test.use({ serviceWorkers: "block" });
@@ -1244,6 +1254,7 @@ test.describe("opt-in single-word help", () => {
 
   test("adds the carrier after a silent lone word and enters the released number", async ({ page, browserName }) => {
     test.skip(browserName === "webkit", "WebKit's headless Web Audio clock does not advance reliably without output");
+    test.skip(!(await pageAudioRuns(page)), "Web Audio cannot run here (for example a CI runner without an audio device)");
     await installFakes(page);
     await page.route("**/audio/speech-carrier-en.wav", (route) => route.fulfill({ body: carrierWav(), contentType: "audio/wav" }));
     await page.reload();
@@ -1291,7 +1302,9 @@ test.describe("opt-in single-word help", () => {
     await page.getByRole("button", { name: "Save diagnostic JSON" }).click();
     const exported = JSON.parse(await readFile(await (await download).path(), "utf8"));
     expect(exported.environment.singleWordHelp).toMatchObject({ requested: true, active: false });
-    expect(exported.environment.singleWordHelp.detail).toContain("carrier audio is unavailable");
+    // Either reason is a legitimate fallback: the missing carrier, or a runner
+    // without an audio device that keeps page audio suspended.
+    expect(exported.environment.singleWordHelp.detail).toMatch(/carrier audio is unavailable|kept page audio suspended/);
   });
 });
 
